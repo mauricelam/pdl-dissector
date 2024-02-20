@@ -4,16 +4,19 @@ local PcapFile_protocol_fields = {
 }
 for k,v in pairs(PcapFile_protocol_fields) do protocol.fields[k] = v end
 function PcapFile_dissect(buffer, pinfo, tree)
-local i = 0
-local field_offsets = {}
-local field_len = 24
-local subtree = tree:add(buffer(i, field_len), "PcapHeader")
-PcapHeader_dissect(buffer(i, field_len), pinfo, subtree)
-i = i + field_len
-local field_len = 16
-local subtree = tree:add(buffer(i, field_len), "PcapRecord")
-PcapRecord_dissect(buffer(i, field_len), pinfo, subtree)
-i = i + field_len
+  local i = 0
+  local field_values = {}
+  local field_len = 24
+  local subtree = tree:add(buffer(i, field_len), "header")
+  i = i + PcapHeader_dissect(buffer(i, field_len), pinfo, subtree)
+  local field_len = 0
+  for j=1,65536 do  -- Cap at 65536 to avoid infinite loop
+    if j >= buffer:len() then break end
+    local subtree = tree:add(buffer(i), "records")
+    i = i + PcapRecord_dissect(buffer(i), pinfo, subtree)
+    i = i + field_len
+  end
+  return i
 end
 local PcapHeader_protocol_fields = {
 ["_fixed_"] = ProtoField.new("_fixed_", "PcapFile.header._fixed_", ftypes.UINT32),
@@ -26,36 +29,37 @@ local PcapHeader_protocol_fields = {
 }
 for k,v in pairs(PcapHeader_protocol_fields) do protocol.fields[k] = v end
 function PcapHeader_dissect(buffer, pinfo, tree)
-local i = 0
-local field_offsets = {}
-local field_len = 4
-field_offsets["_fixed_"] = { start = i, len = field_len }
-tree:add_le(PcapHeader_protocol_fields["_fixed_"], buffer(i, field_len))
-i = i + field_len
-local field_len = 2
-field_offsets["version_major"] = { start = i, len = field_len }
-tree:add_le(PcapHeader_protocol_fields["version_major"], buffer(i, field_len))
-i = i + field_len
-local field_len = 2
-field_offsets["version_minor"] = { start = i, len = field_len }
-tree:add_le(PcapHeader_protocol_fields["version_minor"], buffer(i, field_len))
-i = i + field_len
-local field_len = 4
-field_offsets["thiszone"] = { start = i, len = field_len }
-tree:add_le(PcapHeader_protocol_fields["thiszone"], buffer(i, field_len))
-i = i + field_len
-local field_len = 4
-field_offsets["sigfigs"] = { start = i, len = field_len }
-tree:add_le(PcapHeader_protocol_fields["sigfigs"], buffer(i, field_len))
-i = i + field_len
-local field_len = 4
-field_offsets["snaplen"] = { start = i, len = field_len }
-tree:add_le(PcapHeader_protocol_fields["snaplen"], buffer(i, field_len))
-i = i + field_len
-local field_len = 4
-field_offsets["network"] = { start = i, len = field_len }
-tree:add_le(PcapHeader_protocol_fields["network"], buffer(i, field_len))
-i = i + field_len
+  local i = 0
+  local field_values = {}
+  local field_len = 4
+  field_values["_fixed_"] = buffer(i, field_len):le_uint()
+  tree:add_le(PcapHeader_protocol_fields["_fixed_"], buffer(i, field_len))
+  i = i + field_len
+  local field_len = 2
+  field_values["version_major"] = buffer(i, field_len):raw()
+  tree:add_le(PcapHeader_protocol_fields["version_major"], buffer(i, field_len))
+  i = i + field_len
+  local field_len = 2
+  field_values["version_minor"] = buffer(i, field_len):raw()
+  tree:add_le(PcapHeader_protocol_fields["version_minor"], buffer(i, field_len))
+  i = i + field_len
+  local field_len = 4
+  field_values["thiszone"] = buffer(i, field_len):le_uint()
+  tree:add_le(PcapHeader_protocol_fields["thiszone"], buffer(i, field_len))
+  i = i + field_len
+  local field_len = 4
+  field_values["sigfigs"] = buffer(i, field_len):le_uint()
+  tree:add_le(PcapHeader_protocol_fields["sigfigs"], buffer(i, field_len))
+  i = i + field_len
+  local field_len = 4
+  field_values["snaplen"] = buffer(i, field_len):le_uint()
+  tree:add_le(PcapHeader_protocol_fields["snaplen"], buffer(i, field_len))
+  i = i + field_len
+  local field_len = 4
+  field_values["network"] = buffer(i, field_len):le_uint()
+  tree:add_le(PcapHeader_protocol_fields["network"], buffer(i, field_len))
+  i = i + field_len
+  return i
 end
 local PcapRecord_protocol_fields = {
 ["ts_sec"] = ProtoField.new("ts_sec", "PcapFile.records.ts_sec", ftypes.UINT32),
@@ -66,28 +70,29 @@ local PcapRecord_protocol_fields = {
 }
 for k,v in pairs(PcapRecord_protocol_fields) do protocol.fields[k] = v end
 function PcapRecord_dissect(buffer, pinfo, tree)
-local i = 0
-local field_offsets = {}
-local field_len = 4
-field_offsets["ts_sec"] = { start = i, len = field_len }
-tree:add_le(PcapRecord_protocol_fields["ts_sec"], buffer(i, field_len))
-i = i + field_len
-local field_len = 4
-field_offsets["ts_usec"] = { start = i, len = field_len }
-tree:add_le(PcapRecord_protocol_fields["ts_usec"], buffer(i, field_len))
-i = i + field_len
-local field_len = 4
-field_offsets["_payload__size"] = { start = i, len = field_len }
-tree:add_le(PcapRecord_protocol_fields["_payload__size"], buffer(i, field_len))
-i = i + field_len
-local field_len = 4
-field_offsets["orig_len"] = { start = i, len = field_len }
-tree:add_le(PcapRecord_protocol_fields["orig_len"], buffer(i, field_len))
-i = i + field_len
-local field_len = 0
-field_offsets["_payload_"] = { start = i, len = field_len }
-tree:add_le(PcapRecord_protocol_fields["_payload_"], buffer(i, field_len))
-i = i + field_len
+  local i = 0
+  local field_values = {}
+  local field_len = 4
+  field_values["ts_sec"] = buffer(i, field_len):le_uint()
+  tree:add_le(PcapRecord_protocol_fields["ts_sec"], buffer(i, field_len))
+  i = i + field_len
+  local field_len = 4
+  field_values["ts_usec"] = buffer(i, field_len):le_uint()
+  tree:add_le(PcapRecord_protocol_fields["ts_usec"], buffer(i, field_len))
+  i = i + field_len
+  local field_len = 4
+  field_values["_payload__size"] = buffer(i, field_len):le_uint()
+  tree:add_le(PcapRecord_protocol_fields["_payload__size"], buffer(i, field_len))
+  i = i + field_len
+  local field_len = 4
+  field_values["orig_len"] = buffer(i, field_len):le_uint()
+  tree:add_le(PcapRecord_protocol_fields["orig_len"], buffer(i, field_len))
+  i = i + field_len
+  local field_len = 0 + field_values["_payload__size"]
+  field_values["_payload_"] = buffer(i, field_len):raw()
+  tree:add_le(PcapRecord_protocol_fields["_payload_"], buffer(i, field_len))
+  i = i + field_len
+  return i
 end
 function protocol.dissector(buffer, pinfo, tree)
     pinfo.cols.protocol = protocol.name
