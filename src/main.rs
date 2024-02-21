@@ -90,18 +90,6 @@ impl DeclDissectorInfo {
                 local subtree = tree:add(protocol, buffer(), "{type_name}")
                 {type_name}_dissect(buffer, pinfo, subtree)
             end
-
-            -- Utils section
-
-            function enforce_len_limit(num, limit, tree)
-                if num > limit then
-                    tree:add_expert_info(PI_MALFORMED, PI_ERROR, "Expected " .. num .. " bytes, but only " .. limit .. " bytes remaining")
-                    return limit
-                end
-                return num
-            end
-
-            -- End Utils section
             "#,
         )?;
         Ok(())
@@ -333,9 +321,10 @@ impl FieldDissectorInfo {
                     formatdoc!(
                         r#"
                         if not (function (value) return {validate_expr} end)(field_values["{name}"]) then
-                            tree:add_expert_info(PI_MALFORMED, PI_WARN, "Validation failed: Expected `{validate_expr}`")
+                            tree:add_expert_info(PI_MALFORMED, PI_WARN, "Validation failed: Expected `{validate_escaped}`")
                         end
-                        "#
+                        "#,
+                        validate_escaped = validate_expr.replace('\\', "\\\\").replace('"', "\\\"")
                     )
                 })
                 .unwrap_or_default();
@@ -421,7 +410,17 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
         debug!("Write field: {:?} {:?}", self, self.annot);
         match &self.desc {
             FieldDesc::Checksum { field_id } => todo!(),
-            FieldDesc::Padding { size } => todo!(),
+            FieldDesc::Padding { size } => {
+                Some(FieldDissectorInfo::Scalar {
+                    name: "Padding".into(),
+                    abbr: ctx.full_field_name("_fixed_"),
+                    ftype: "ftypes.BYTES",
+                    size: self.annot.size,
+                    len_bytes: RuntimeLenInfo::fixed(*size),
+                    endian: ctx.endian,
+                    validate_expr: Some(r#"value == string.rep("\000", #value)"#.to_string()),
+                })
+            },
             FieldDesc::Size { field_id, width } => {
                 let ftype = ftype_str(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
@@ -517,14 +516,13 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
                         .to_dissector_info(&ctx.with_prefix(id)),
                 ),
                 len: match (width, size_modifier, size) {
-                    (_, _, None) => RuntimeLenInfo::Unbounded,
                     (Some(width), None, Some(size)) => RuntimeLenInfo::fixed(width * size / 8),
                     (None, Some(size_modifier), Some(_size)) => {
                         let mut len = RuntimeLenInfo::fixed(0);
                         len.add_len_field(format!("{id}:size"), str::parse(size_modifier).unwrap());
                         len
                     }
-                    _ => unreachable!(),
+                    _ => RuntimeLenInfo::Unbounded,
                 },
                 size: *size,
             }),
@@ -650,5 +648,20 @@ fn main() -> anyhow::Result<()> {
             anyhow::bail!("Unable to find declaration {:?}", target_packet);
         }
     }
+    printdoc!(
+        r#"
+        -- Utils section
+
+        function enforce_len_limit(num, limit, tree)
+            if num > limit then
+                tree:add_expert_info(PI_MALFORMED, PI_ERROR, "Expected " .. num .. " bytes, but only " .. limit .. " bytes remaining")
+                return limit
+            end
+            return num
+        end
+
+        -- End Utils section
+        "#
+    );
     Ok(())
 }
