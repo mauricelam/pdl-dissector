@@ -13,7 +13,11 @@ function PcapFile_dissect(buffer, pinfo, tree)
     subtree:set_len(dissected_len)
     i = i + dissected_len
 --
-    for j=1,65536 do
+    local size = field_values["records:count"]
+    if size == nil then
+        size = 65536
+    end
+    for j=1,size do
         if i >= buffer:len() then break end
         local subtree = tree:add(buffer(i), "records")
         local dissected_len = PcapRecord_dissect(buffer(i), pinfo, subtree)
@@ -99,7 +103,7 @@ end
 local PcapRecord_protocol_fields = {
     ["ts_sec"] = ProtoField.new("ts_sec", "PcapFile.records.ts_sec", ftypes.UINT32),
     ["ts_usec"] = ProtoField.new("ts_usec", "PcapFile.records.ts_usec", ftypes.UINT32),
-    ["_payload__size"] = ProtoField.new("_payload__size", "PcapFile.records._payload__size", ftypes.UINT32),
+    ["_payload_:size"] = ProtoField.new("_payload_:size", "PcapFile.records._payload__size", ftypes.UINT32),
     ["orig_len"] = ProtoField.new("orig_len", "PcapFile.records.orig_len", ftypes.UINT32),
     ["_payload_"] = ProtoField.new("_payload_", "PcapFile.records._payload_", ftypes.NONE),
 }
@@ -125,10 +129,10 @@ function PcapRecord_dissect(buffer, pinfo, tree)
     end
 --
     local field_len = enforce_len_limit(4, buffer(i):len(), tree)
-    field_values["_payload__size"] = buffer(i, field_len):le_uint()
+    field_values["_payload_:size"] = buffer(i, field_len):le_uint()
     
     if field_len ~= 0 then
-        tree:add_le(PcapRecord_protocol_fields["_payload__size"], buffer(i, field_len))
+        tree:add_le(PcapRecord_protocol_fields["_payload_:size"], buffer(i, field_len))
         i = i + field_len
     end
 --
@@ -140,7 +144,7 @@ function PcapRecord_dissect(buffer, pinfo, tree)
         i = i + field_len
     end
 --
-    local field_len = enforce_len_limit(0 + field_values["_payload__size"], buffer(i):len(), tree)
+    local field_len = enforce_len_limit(0 + field_values["_payload_:size"], buffer(i):len(), tree)
     field_values["_payload_"] = buffer(i, field_len):raw()
     
     if field_len ~= 0 then
@@ -155,7 +159,7 @@ function protocol.dissector(buffer, pinfo, tree)
     PcapFile_dissect(buffer, pinfo, subtree)
 end
 
--- Utils below
+-- Utils section
 
 function enforce_len_limit(num, limit, tree)
     if num > limit then
@@ -164,5 +168,7 @@ function enforce_len_limit(num, limit, tree)
     end
     return num
 end
+
+-- End Utils section
 local tcp_port = DissectorTable.get("tcp.port")
 tcp_port:add(8000, protocol)

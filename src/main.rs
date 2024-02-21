@@ -91,7 +91,7 @@ impl DeclDissectorInfo {
                 {type_name}_dissect(buffer, pinfo, subtree)
             end
 
-            -- Utils below
+            -- Utils section
 
             function enforce_len_limit(num, limit, tree)
                 if num > limit then
@@ -100,6 +100,8 @@ impl DeclDissectorInfo {
                 end
                 return num
             end
+
+            -- End Utils section
             "#,
         )?;
         Ok(())
@@ -107,8 +109,8 @@ impl DeclDissectorInfo {
 
     /// The length of this declaration, which is the sum of the lengths of all
     /// of its fields.
-    pub fn decl_len(&self) -> FieldLen {
-        let mut field_len = FieldLen::fixed(0);
+    pub fn decl_len(&self) -> RuntimeLenInfo {
+        let mut field_len = RuntimeLenInfo::fixed(0);
         for field in &self.fields {
             field_len.add(field.len());
         }
@@ -163,69 +165,60 @@ impl ToDissector for Decl<analyzer::ast::Annotation> {
     }
 }
 
-/// Representation of the legnth of a field. This can be applied to both Fields
-/// and Decls (in the case of typedefs).
+/// Representation of length info that is resolvable at runtime. The unit of
+/// this value depends on context. For example, it can either represent the
+/// number of bytes, or the number of times a field is repeated.
 #[derive(Debug, Clone)]
-pub enum FieldLen {
+pub enum RuntimeLenInfo {
     /// The field length is bounded. The resulting length is given by
-    /// `(SUM(valueof(referenced_fields)) + constant_factor) * multiply_factor`.
+    /// `SUM(valueof(referenced_fields)) + constant_factor`.
     Bounded {
         referenced_fields: Vec<String>,
         constant_factor: usize,
-        multiply_factor: usize,
     },
     /// The field length is unbounded, e.g. if this is an array without a fixed
     /// size.
     Unbounded,
 }
 
-impl FieldLen {
+impl RuntimeLenInfo {
     pub fn fixed(size: usize) -> Self {
         Self::Bounded {
             referenced_fields: Vec::new(),
             constant_factor: size,
-            multiply_factor: 1,
         }
     }
 
     pub fn add_len_field(&mut self, field: String, modifier: usize) {
         match self {
-            FieldLen::Bounded {
+            RuntimeLenInfo::Bounded {
                 referenced_fields,
                 constant_factor,
-                multiply_factor: _,
             } => {
                 *constant_factor += modifier;
                 referenced_fields.push(field);
             }
-            FieldLen::Unbounded => *self = FieldLen::Unbounded,
+            RuntimeLenInfo::Unbounded => *self = RuntimeLenInfo::Unbounded,
         }
     }
 
-    pub fn add(&mut self, other: &FieldLen) {
+    pub fn add(&mut self, other: &RuntimeLenInfo) {
         *self = match (&self, other) {
             (
-                FieldLen::Bounded {
+                RuntimeLenInfo::Bounded {
                     referenced_fields,
                     constant_factor,
-                    multiply_factor,
                 },
-                FieldLen::Bounded {
+                RuntimeLenInfo::Bounded {
                     referenced_fields: other_referenced_fields,
                     constant_factor: other_constant_factor,
-                    multiply_factor: other_multiply_factor,
                 },
-            ) => {
-                assert_eq!(1, *multiply_factor); // Needs some refactoring before this can accept multiple fixed-sized arrays
-                assert_eq!(1, *other_multiply_factor);
-                FieldLen::Bounded {
-                    referenced_fields: [referenced_fields.as_slice(), &other_referenced_fields]
-                        .concat(),
-                    constant_factor: constant_factor + other_constant_factor,
-                    multiply_factor: 1,
-                }
-            }
-            _ => FieldLen::Unbounded,
+            ) => RuntimeLenInfo::Bounded {
+                referenced_fields: [referenced_fields.as_slice(), &other_referenced_fields]
+                    .concat(),
+                constant_factor: constant_factor + other_constant_factor,
+            },
+            _ => RuntimeLenInfo::Unbounded,
         }
     }
 
@@ -236,19 +229,17 @@ impl FieldLen {
     /// returns a lua expression for the field length.
     pub fn to_lua_expr(&self) -> Option<String> {
         match self {
-            FieldLen::Bounded {
+            RuntimeLenInfo::Bounded {
                 referenced_fields,
                 constant_factor,
-                multiply_factor,
             } => {
-                let len = constant_factor * multiply_factor;
-                let mut output_code = len.to_string();
+                let mut output_code = constant_factor.to_string();
                 for field in referenced_fields {
                     write!(output_code, r#" + field_values["{field}"]"#).unwrap();
                 }
                 Some(output_code)
             }
-            FieldLen::Unbounded => None,
+            RuntimeLenInfo::Unbounded => None,
         }
     }
 }
@@ -261,8 +252,10 @@ enum FieldDissectorInfo {
         /// Filter name of the field (the string that is used in filters).
         abbr: String,
         ftype: &'static str,
+        /// The number of times this field can be repeated.
         size: Size,
-        len: FieldLen,
+        /// The number of bytes this field takes before repetition.
+        len_bytes: RuntimeLenInfo,
         endian: EndiannessValue,
         /// A lua-expression that yields a boolean value. If the boolean result
         /// is false, a warning will be shown in the dissected info. `value` is
@@ -272,12 +265,12 @@ enum FieldDissectorInfo {
     Typedef {
         name: String,
         decl: Box<DeclDissectorInfo>,
-        len: FieldLen,
+        len: RuntimeLenInfo,
     },
     Array {
         name: String,
         decl: Box<DeclDissectorInfo>,
-        len: FieldLen,
+        len: RuntimeLenInfo,
         size: Option<usize>,
     },
 }
@@ -298,9 +291,9 @@ impl FieldDissectorInfo {
         }
     }
 
-    pub fn len(&self) -> &FieldLen {
+    pub fn len(&self) -> &RuntimeLenInfo {
         match self {
-            FieldDissectorInfo::Scalar { len, .. } => len,
+            FieldDissectorInfo::Scalar { len_bytes: len, .. } => len,
             FieldDissectorInfo::Typedef { len, .. } => len,
             FieldDissectorInfo::Array { len, .. } => len,
         }
@@ -372,7 +365,11 @@ impl FieldDissectorInfo {
                     writer,
                     r#"
                     --
-                        for j=1,{size} do
+                        local size = field_values["{name}:count"]
+                        if size == nil then
+                            size = {size}
+                        end
+                        for j=1,size do
                             if i >= buffer:len() then break end
                             local subtree = tree:add(buffer(i), "{name}")
                             local dissected_len = {type_name}_dissect(buffer(i), pinfo, subtree)
@@ -428,23 +425,47 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
             FieldDesc::Size { field_id, width } => {
                 let ftype = ftype_str(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
-                    name: format!("{field_id}_size"),
+                    name: format!("{field_id}:size"),
                     abbr: ctx.full_field_name(&format!("{field_id}_size")),
                     ftype,
                     size: self.annot.size,
-                    len: FieldLen::fixed(width / 8),
+                    len_bytes: RuntimeLenInfo::fixed(width / 8),
                     endian: ctx.endian,
                     validate_expr: None,
                 })
             }
-            FieldDesc::Count { field_id, width } => todo!(),
+            FieldDesc::Count { field_id, width } => {
+                let ftype = ftype_str(self.annot.size);
+                Some(FieldDissectorInfo::Scalar {
+                    name: format!("{field_id}:count"),
+                    abbr: ctx.full_field_name(&format!("{field_id}_count")),
+                    ftype,
+                    size: self.annot.size,
+                    len_bytes: RuntimeLenInfo::fixed(*width),
+                    endian: ctx.endian,
+                    validate_expr: None,
+                })
+            },
             FieldDesc::ElementSize { field_id, width } => todo!(),
-            FieldDesc::Body => todo!(),
+            FieldDesc::Body => {
+                let ftype = ftype_str(self.annot.size);
+                let mut field_len = RuntimeLenInfo::fixed(0);
+                field_len.add_len_field("_body_:size".into(), 0);
+                Some(FieldDissectorInfo::Scalar {
+                    name: String::from("_body_"),
+                    abbr: ctx.full_field_name("_body_"),
+                    ftype,
+                    size: self.annot.size,
+                    len_bytes: field_len,
+                    endian: ctx.endian,
+                    validate_expr: None,
+                })
+            }
             FieldDesc::Payload { size_modifier } => {
                 let ftype = ftype_str(self.annot.size);
-                let mut field_len = FieldLen::fixed(0);
+                let mut field_len = RuntimeLenInfo::fixed(0);
                 field_len.add_len_field(
-                    "_payload__size".into(),
+                    "_payload_:size".into(),
                     size_modifier
                         .as_ref()
                         .map(|s| s.parse::<usize>().unwrap())
@@ -455,7 +476,7 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
                     abbr: ctx.full_field_name("_payload_"),
                     ftype,
                     size: self.annot.size,
-                    len: field_len,
+                    len_bytes: field_len,
                     endian: ctx.endian,
                     validate_expr: None,
                 })
@@ -467,7 +488,7 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
                     abbr: ctx.full_field_name("_fixed_"),
                     ftype,
                     size: self.annot.size,
-                    len: FieldLen::fixed(width / 8),
+                    len_bytes: RuntimeLenInfo::fixed(width / 8),
                     endian: ctx.endian,
                     validate_expr: Some(format!("value == {value}")),
                 })
@@ -478,7 +499,7 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
                 abbr: ctx.full_field_name("_reserved_"),
                 ftype: "ftypes.NONE",
                 size: self.annot.size,
-                len: FieldLen::fixed(width / 8),
+                len_bytes: RuntimeLenInfo::fixed(width / 8),
                 endian: ctx.endian,
                 validate_expr: Some("value == 0".into()),
             }),
@@ -496,11 +517,11 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
                         .to_dissector_info(&ctx.with_prefix(id)),
                 ),
                 len: match (width, size_modifier, size) {
-                    (_, _, None) => FieldLen::Unbounded,
-                    (Some(width), None, Some(size)) => FieldLen::fixed(width * size / 8),
+                    (_, _, None) => RuntimeLenInfo::Unbounded,
+                    (Some(width), None, Some(size)) => RuntimeLenInfo::fixed(width * size / 8),
                     (None, Some(size_modifier), Some(_size)) => {
-                        let mut len = FieldLen::fixed(0);
-                        len.add_len_field(format!("{id}_size"), str::parse(size_modifier).unwrap());
+                        let mut len = RuntimeLenInfo::fixed(0);
+                        len.add_len_field(format!("{id}:size"), str::parse(size_modifier).unwrap());
                         len
                     }
                     _ => unreachable!(),
@@ -514,7 +535,7 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
                     abbr: ctx.full_field_name(id),
                     ftype,
                     size: self.annot.size,
-                    len: FieldLen::fixed(width / 8),
+                    len_bytes: RuntimeLenInfo::fixed(width / 8),
                     endian: ctx.endian,
                     validate_expr: None,
                 })
@@ -566,7 +587,7 @@ struct Args {
     ///
     /// Since a PDL file can contain multiple packet declarations, this
     /// specifies which packet the dissector should be generated for.
-    packet_type: String,
+    target_packets: Vec<String>,
 }
 
 fn get_desc_id<A: Annotation>(desc: &DeclDesc<A>) -> String {
@@ -589,42 +610,45 @@ fn main() -> anyhow::Result<()> {
     let file = pdl_compiler::parser::parse_file(&mut sources, &args.pdl_file)
         .map_err(|msg| anyhow!("{msg:?}"))?;
     let analyzed_file = analyzer::analyze(&file).map_err(|msg| anyhow!("{msg:?}"))?;
-    let target_decl = analyzed_file
-        .declarations
-        .iter()
-        .find(|decl| get_desc_id(&decl.desc) == args.packet_type);
-    if let Some(decl) = target_decl {
-        println!(
-            r#"protocol = Proto("{decl_name}",  "{decl_name}")"#,
-            decl_name = args.packet_type
-        );
-        println!(r#"protocol.fields = {{}}"#);
-        let target_dissector_info = decl.to_dissector_info(&Context {
-            prefix: vec![args.packet_type],
-            file: analyzed_file.clone(),
-            endian: analyzed_file.endianness.value,
-        });
-        let mut decls = Vec::new();
-        target_dissector_info.collect_reachable_decls(&mut |v| decls.push(v));
-        for decl in decls {
-            decl.write_proto_fields(&mut std::io::stdout())?;
+    assert!(!args.target_packets.is_empty());
+    for target_packet in args.target_packets {
+        let target_decl = analyzed_file
+            .declarations
+            .iter()
+            .find(|decl| get_desc_id(&decl.desc) == target_packet);
+        if let Some(decl) = target_decl {
             println!(
-                r#"for k,v in pairs({}_protocol_fields) do protocol.fields[k] = v end"#,
-                decl.name
+                r#"protocol = Proto("{decl_name}",  "{decl_name}")"#,
+                decl_name = target_packet
             );
-            decl.write_dissect_fn(&mut std::io::stdout())?;
+            println!(r#"protocol.fields = {{}}"#);
+            let target_dissector_info = decl.to_dissector_info(&Context {
+                prefix: vec![target_packet],
+                file: analyzed_file.clone(),
+                endian: analyzed_file.endianness.value,
+            });
+            let mut decls = Vec::new();
+            target_dissector_info.collect_reachable_decls(&mut |v| decls.push(v));
+            for decl in decls {
+                decl.write_proto_fields(&mut std::io::stdout())?;
+                println!(
+                    r#"for k,v in pairs({}_protocol_fields) do protocol.fields[k] = v end"#,
+                    decl.name
+                );
+                decl.write_dissect_fn(&mut std::io::stdout())?;
+            }
+
+            target_dissector_info.write_main_dissector(&mut std::io::stdout())?;
+
+            printdoc!(
+                r#"
+                local tcp_port = DissectorTable.get("tcp.port")
+                tcp_port:add(8000, protocol)
+                "#
+            );
+        } else {
+            anyhow::bail!("Unable to find declaration {:?}", target_packet);
         }
-
-        target_dissector_info.write_main_dissector(&mut std::io::stdout())?;
-
-        printdoc!(
-            r#"
-            local tcp_port = DissectorTable.get("tcp.port")
-            tcp_port:add(8000, protocol)
-            "#
-        );
-    } else {
-        anyhow::bail!("Unable to find declaration {:?}", args.packet_type);
     }
     Ok(())
 }
