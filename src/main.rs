@@ -1,29 +1,12 @@
 use anyhow::anyhow;
 use clap::Parser;
+use indoc::{formatdoc, printdoc, writedoc};
 use log::debug;
 use pdl_compiler::{
     analyzer::{self, ast::Size},
     ast::{Annotation, Decl, DeclDesc, EndiannessValue, Field, FieldDesc, File, SourceDatabase},
 };
 use std::fmt::Write;
-
-// mongodb_protocol = Proto("MongoDB",  "MongoDB Protocol")
-// message_length = ProtoField.int32("mongodb.message_length", "messageLength", base.DEC)
-// mongodb_protocol.fields = { message_length }
-
-// function mongodb_protocol.dissector(buffer, pinfo, tree)
-//   length = buffer:len()
-//   if length == 0 then return end
-
-//   pinfo.cols.protocol = mongodb_protocol.name
-
-//   local subtree = tree:add(mongodb_protocol, buffer(), "MongoDB Protocol Data")
-
-//   subtree:add_le(message_length, buffer(0,4))
-// end
-
-// local tcp_port = DissectorTable.get("tcp.port")
-// tcp_port:add(59274, mongodb_protocol)
 
 #[derive(Clone, Debug)]
 struct Context {
@@ -91,32 +74,39 @@ impl DeclDissectorInfo {
             .collect();
         writeln!(writer, r#"local {}_protocol_fields = {{"#, self.name)?;
         for (name, decl) in field_decls {
-            writeln!(writer, r#"["{name}"] = {decl},"#)?;
+            writeln!(writer, r#"    ["{name}"] = {decl},"#)?;
         }
         writeln!(writer, r#"}}"#)?;
         Ok(())
     }
 
     pub fn write_main_dissector(&self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
-        writeln!(
+        let type_name = &self.name;
+        writedoc!(
             writer,
-            r#"function protocol.dissector(buffer, pinfo, tree)"#
+            r#"
+            function protocol.dissector(buffer, pinfo, tree)
+                pinfo.cols.protocol = protocol.name
+                local subtree = tree:add(protocol, buffer(), "{type_name}")
+                {type_name}_dissect(buffer, pinfo, subtree)
+            end
+
+            -- Utils below
+
+            function enforce_len_limit(num, limit, tree)
+                if num > limit then
+                    tree:add_expert_info(PI_MALFORMED, PI_ERROR, "Expected " .. num .. " bytes, but only " .. limit .. " bytes remaining")
+                    return limit
+                end
+                return num
+            end
+            "#,
         )?;
-        writeln!(writer, r#"    pinfo.cols.protocol = protocol.name"#)?;
-        writeln!(
-            writer,
-            r#"    local subtree = tree:add(protocol, buffer(), "{}")"#,
-            self.name
-        )?;
-        writeln!(
-            writer,
-            r#"    {}_dissect(buffer, pinfo, subtree)"#,
-            self.name
-        )?;
-        writeln!(writer, r#"end"#)?;
         Ok(())
     }
 
+    /// The length of this declaration, which is the sum of the lengths of all
+    /// of its fields.
     pub fn decl_len(&self) -> FieldLen {
         let mut field_len = FieldLen::fixed(0);
         for field in &self.fields {
@@ -126,19 +116,26 @@ impl DeclDissectorInfo {
     }
 
     pub fn write_dissect_fn(&self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
-        writeln!(
+        let type_name = &self.name;
+        writedoc!(
             writer,
-            "function {}_dissect(buffer, pinfo, tree)",
-            self.name
+            r#"
+            function {type_name}_dissect(buffer, pinfo, tree)
+                local i = 0
+                local field_values = {{}}
+            "#
         )?;
-        writeln!(writer, "  local i = 0")?;
-        writeln!(writer, "  local field_values = {{}}")?;
         let field_table = format!("{}_protocol_fields", self.name);
         for field in &self.fields {
             field.write_dissect_fn(writer, &field_table)?;
         }
-        writeln!(writer, "  return i")?;
-        writeln!(writer, "end")?;
+        writedoc!(
+            writer,
+            r#"
+                return i
+            end
+            "#
+        )?;
         Ok(())
     }
 }
@@ -163,19 +160,22 @@ impl ToDissector for Decl<analyzer::ast::Annotation> {
                 .filter_map(|field| field.to_dissector_info(ctx))
                 .collect(),
         }
-        // if let (Some(payload), Some(payload_size)) = (self.payload(), self.payload_size()) {
-
-        // }
     }
 }
 
+/// Representation of the legnth of a field. This can be applied to both Fields
+/// and Decls (in the case of typedefs).
 #[derive(Debug, Clone)]
 pub enum FieldLen {
+    /// The field length is bounded. The resulting length is given by
+    /// `(SUM(valueof(referenced_fields)) + constant_factor) * multiply_factor`.
     Bounded {
         referenced_fields: Vec<String>,
         constant_factor: usize,
         multiply_factor: usize,
     },
+    /// The field length is unbounded, e.g. if this is an array without a fixed
+    /// size.
     Unbounded,
 }
 
@@ -264,6 +264,10 @@ enum FieldDissectorInfo {
         size: Size,
         len: FieldLen,
         endian: EndiannessValue,
+        /// A lua-expression that yields a boolean value. If the boolean result
+        /// is false, a warning will be shown in the dissected info. `value` is
+        /// a variable that can be used to get the value of this field.
+        validate_expr: Option<String>,
     },
     Typedef {
         name: String,
@@ -309,7 +313,11 @@ impl FieldDissectorInfo {
     ) -> std::io::Result<()> {
         match self {
             FieldDissectorInfo::Scalar {
-                name, endian, size, ..
+                name,
+                endian,
+                size,
+                validate_expr,
+                ..
             } => {
                 let add_fn = match endian {
                     EndiannessValue::LittleEndian => "add_le",
@@ -320,7 +328,6 @@ impl FieldDissectorInfo {
                 } else {
                     ("0".into(), "buffer(i)")
                 };
-                writeln!(writer, r#"  local field_len = {len_expr}"#)?;
                 let buffer_value_function = match (endian, size) {
                     (EndiannessValue::BigEndian, Size::Static(64)) => "uint64",
                     (EndiannessValue::LittleEndian, Size::Static(64)) => "le_uint64",
@@ -329,70 +336,70 @@ impl FieldDissectorInfo {
                     (EndiannessValue::BigEndian, _) => "raw",
                     (EndiannessValue::LittleEndian, _) => "raw",
                 };
-                writeln!(
+                let validate = validate_expr.as_ref().map(|validate_expr| {
+                    formatdoc!(
+                        r#"
+                        if not (function (value) return {validate_expr} end)(field_values["{name}"]) then
+                            tree:add_expert_info(PI_MALFORMED, PI_WARN, "Validation failed: Expected `{validate_expr}`")
+                        end
+                        "#
+                    )
+                })
+                .unwrap_or_default();
+                writedoc!(
                     writer,
-                    r#"  field_values["{name}"] = {buffer_expr}:{buffer_value_function}()"#
+                    r#"
+                    --
+                        local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
+                        field_values["{name}"] = {buffer_expr}:{buffer_value_function}()
+                        {validate}
+                        if field_len ~= 0 then
+                            tree:{add_fn}({field_table}["{name}"], {buffer_expr})
+                            i = i + field_len
+                        end
+                    "#,
                 )?;
-                writeln!(
-                    writer,
-                    r#"  tree:{add_fn}({field_table}["{name}"], {buffer_expr})"#,
-                )?;
-                writeln!(writer, "  i = i + field_len")?;
             }
-            FieldDissectorInfo::Array { name, decl, len, size } => {
-                let (len_expr, buffer_expr) = if let Some(len_expr) = len.to_lua_expr() {
-                    (len_expr, "buffer(i, field_len)")
-                } else {
-                    ("0".into(), "buffer(i)")
-                };
-                writeln!(writer, r#"  local field_len = {len_expr}"#)?;
-                // writeln!(
-                //     writer,
-                //     r#"field_values["{}"] = {{ start = i, len = field_len }}"#,
-                //     name
-                // )?;
-                if let Some(size) = size {
-                    writeln!(writer, r#"  for j=1,{size} do"#)?;
-                } else {
-                    writeln!(writer, r#"  for j=1,65536 do  -- Cap at 65536 to avoid infinite loop"#)?;
-                }
-                writeln!(writer, r#"    if j >= buffer:len() then break end"#)?;
-                writeln!(
+            FieldDissectorInfo::Array {
+                name,
+                decl,
+                len: _,
+                size,
+            } => {
+                let type_name = &decl.name;
+                let size = size.unwrap_or(65536); // Cap at 65536 to avoid infinite loop
+                writedoc!(
                     writer,
-                    r#"    local subtree = tree:add({buffer_expr}, "{}")"#,
-                    name
+                    r#"
+                    --
+                        for j=1,{size} do
+                            if i >= buffer:len() then break end
+                            local subtree = tree:add(buffer(i), "{name}")
+                            local dissected_len = {type_name}_dissect(buffer(i), pinfo, subtree)
+                            subtree:set_len(dissected_len)
+                            i = i + dissected_len
+                        end
+                    "#,
                 )?;
-                writeln!(
-                    writer,
-                    r#"    i = i + {}_dissect({buffer_expr}, pinfo, subtree)"#,
-                    decl.name
-                )?;
-                writeln!(writer, "    i = i + field_len")?;
-                writeln!(writer, "  end")?;
             }
             FieldDissectorInfo::Typedef { name, decl, len } => {
+                let type_name = &decl.name;
                 let (len_expr, buffer_expr) = if let Some(len_expr) = len.to_lua_expr() {
                     (len_expr, "buffer(i, field_len)")
                 } else {
                     ("0".into(), "buffer(i)")
                 };
-                writeln!(writer, r#"  local field_len = {len_expr}"#)?;
-                // writeln!(
-                //     writer,
-                //     r#"field_values["{}"] = {{ start = i, len = field_len }}"#,
-                //     name
-                // )?;
-                writeln!(
+                writedoc!(
                     writer,
-                    r#"  local subtree = tree:add({buffer_expr}, "{}")"#,
-                    name
+                    r#"
+                    --
+                        local field_len = {len_expr}
+                        local subtree = tree:add({buffer_expr}, "{name}")
+                        local dissected_len = {type_name}_dissect({buffer_expr}, pinfo, subtree)
+                        subtree:set_len(dissected_len)
+                        i = i + dissected_len
+                    "#,
                 )?;
-                writeln!(
-                    writer,
-                    r#"  i = i + {}_dissect({buffer_expr}, pinfo, subtree)"#,
-                    decl.name
-                )?;
-                // writeln!(writer, "i = i + field_len")?;
             }
         }
         Ok(())
@@ -427,6 +434,7 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
                     size: self.annot.size,
                     len: FieldLen::fixed(width / 8),
                     endian: ctx.endian,
+                    validate_expr: None,
                 })
             }
             FieldDesc::Count { field_id, width } => todo!(),
@@ -449,17 +457,19 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
                     size: self.annot.size,
                     len: field_len,
                     endian: ctx.endian,
+                    validate_expr: None,
                 })
             }
             FieldDesc::FixedScalar { width, value } => {
                 let ftype = ftype_str(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
-                    name: String::from("_fixed_"),
+                    name: format!("Fixed value: {value}"),
                     abbr: ctx.full_field_name("_fixed_"),
                     ftype,
                     size: self.annot.size,
                     len: FieldLen::fixed(width / 8),
                     endian: ctx.endian,
+                    validate_expr: Some(format!("value == {value}")),
                 })
             }
             FieldDesc::FixedEnum { enum_id, tag_id } => todo!(),
@@ -470,6 +480,7 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
                 size: self.annot.size,
                 len: FieldLen::fixed(width / 8),
                 endian: ctx.endian,
+                validate_expr: Some("value == 0".into()),
             }),
             FieldDesc::Array {
                 id,
@@ -505,6 +516,7 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
                     size: self.annot.size,
                     len: FieldLen::fixed(width / 8),
                     endian: ctx.endian,
+                    validate_expr: None,
                 })
             }
             FieldDesc::Flag {
@@ -605,11 +617,11 @@ fn main() -> anyhow::Result<()> {
 
         target_dissector_info.write_main_dissector(&mut std::io::stdout())?;
 
-        println!(
+        printdoc!(
             r#"
-        local tcp_port = DissectorTable.get("tcp.port")
-        tcp_port:add(8000, protocol)
-        "#
+            local tcp_port = DissectorTable.get("tcp.port")
+            tcp_port:add(8000, protocol)
+            "#
         );
     } else {
         anyhow::bail!("Unable to find declaration {:?}", args.packet_type);
