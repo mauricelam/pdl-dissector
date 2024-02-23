@@ -1,12 +1,12 @@
 use anyhow::anyhow;
 use clap::Parser;
-use indoc::{formatdoc, printdoc, writedoc};
+use indoc::{formatdoc, writedoc};
 use log::debug;
 use pdl_compiler::{
     analyzer::{self, ast::Size},
     ast::{Annotation, Decl, DeclDesc, EndiannessValue, Field, FieldDesc, File, SourceDatabase},
 };
-use std::fmt::Write;
+use std::{fmt::Write, path::PathBuf};
 
 #[derive(Clone, Debug)]
 struct Context {
@@ -410,17 +410,15 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
         debug!("Write field: {:?} {:?}", self, self.annot);
         match &self.desc {
             FieldDesc::Checksum { field_id } => todo!(),
-            FieldDesc::Padding { size } => {
-                Some(FieldDissectorInfo::Scalar {
-                    name: "Padding".into(),
-                    abbr: ctx.full_field_name("_fixed_"),
-                    ftype: "ftypes.BYTES",
-                    size: self.annot.size,
-                    len_bytes: RuntimeLenInfo::fixed(*size),
-                    endian: ctx.endian,
-                    validate_expr: Some(r#"value == string.rep("\000", #value)"#.to_string()),
-                })
-            },
+            FieldDesc::Padding { size } => Some(FieldDissectorInfo::Scalar {
+                name: "Padding".into(),
+                abbr: ctx.full_field_name("_fixed_"),
+                ftype: "ftypes.BYTES",
+                size: self.annot.size,
+                len_bytes: RuntimeLenInfo::fixed(*size),
+                endian: ctx.endian,
+                validate_expr: Some(r#"value == string.rep("\000", #value)"#.to_string()),
+            }),
             FieldDesc::Size { field_id, width } => {
                 let ftype = ftype_str(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
@@ -444,7 +442,7 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
                     endian: ctx.endian,
                     validate_expr: None,
                 })
-            },
+            }
             FieldDesc::ElementSize { field_id, width } => todo!(),
             FieldDesc::Body => {
                 let ftype = ftype_str(self.annot.size);
@@ -492,7 +490,22 @@ impl ToDissector for Field<analyzer::ast::Annotation> {
                     validate_expr: Some(format!("value == {value}")),
                 })
             }
-            FieldDesc::FixedEnum { enum_id, tag_id } => todo!(),
+            FieldDesc::FixedEnum { enum_id, tag_id } => {
+                let referenced_enum = ctx
+                    .find_decl(enum_id)
+                    .expect("Unresolved enum reference")
+                    .to_dissector_info(&ctx.with_prefix(enum_id));
+                let ftype = ftype_str(self.annot.size);
+                Some(FieldDissectorInfo::Scalar {
+                    name: format!("Fixed value: {tag_id}"),
+                    abbr: ctx.full_field_name("_fixed_"),
+                    ftype,
+                    size: self.annot.size,
+                    len_bytes: referenced_enum.decl_len(),
+                    endian: ctx.endian,
+                    validate_expr: Some(format!("value == {tag_id}")),
+                })
+            }
             FieldDesc::Reserved { width } => Some(FieldDissectorInfo::Scalar {
                 name: String::from("_reserved_"),
                 abbr: ctx.full_field_name("_reserved_"),
@@ -580,7 +593,7 @@ pub fn ftype_str(size: Size) -> &'static str {
 struct Args {
     /// The PDL file to generate the Wireshark dissector from. See
     /// https://github.com/google/pdl/blob/main/doc/reference.md.
-    pdl_file: String,
+    pdl_file: PathBuf,
     /// The type in the PDL file to generate dissector for.
     ///
     /// Since a PDL file can contain multiple packet declarations, this
@@ -600,55 +613,79 @@ fn get_desc_id<A: Annotation>(desc: &DeclDesc<A>) -> String {
     }
 }
 
-fn main() -> anyhow::Result<()> {
+fn generate_for_decl(
+    decl_name: &str,
+    decl: &Decl<pdl_compiler::analyzer::ast::Annotation>,
+    analyzed_file: &File<pdl_compiler::analyzer::ast::Annotation>,
+    writer: &mut impl std::io::Write,
+) -> anyhow::Result<()> {
+    writeln!(
+        writer,
+        r#"protocol = Proto("{decl_name}",  "{decl_name}")"#,
+        decl_name = decl_name
+    )?;
+    writeln!(writer, r#"protocol.fields = {{}}"#)?;
+    let target_dissector_info = decl.to_dissector_info(&Context {
+        prefix: vec![decl_name.to_string()],
+        file: analyzed_file.clone(),
+        endian: analyzed_file.endianness.value,
+    });
+    let mut decls = Vec::new();
+    target_dissector_info.collect_reachable_decls(&mut |v| decls.push(v));
+    for decl in decls {
+        decl.write_proto_fields(writer)?;
+        writeln!(
+            writer,
+            r#"for k,v in pairs({}_protocol_fields) do protocol.fields[k] = v end"#,
+            decl.name
+        )?;
+        decl.write_dissect_fn(writer)?;
+    }
+
+    target_dissector_info.write_main_dissector(writer)?;
+
+    writedoc!(
+        writer,
+        r#"
+        local tcp_port = DissectorTable.get("tcp.port")
+        tcp_port:add(8000, protocol)
+        "#
+    )?;
+    Ok(())
+}
+
+fn run(args: Args, writer: &mut impl std::io::Write) -> anyhow::Result<()> {
     env_logger::init();
-    let args = Args::parse();
 
     let mut sources = SourceDatabase::new();
-    let file = pdl_compiler::parser::parse_file(&mut sources, &args.pdl_file)
-        .map_err(|msg| anyhow!("{msg:?}"))?;
+    let file = pdl_compiler::parser::parse_file(
+        &mut sources,
+        args.pdl_file
+            .to_str()
+            .expect("pdl_file path should be a valid string"),
+    )
+    .map_err(|msg| anyhow!("{msg:?}"))?;
     let analyzed_file = analyzer::analyze(&file).map_err(|msg| anyhow!("{msg:?}"))?;
     assert!(!args.target_packets.is_empty());
     for target_packet in args.target_packets {
-        let target_decl = analyzed_file
-            .declarations
-            .iter()
-            .find(|decl| get_desc_id(&decl.desc) == target_packet);
-        if let Some(decl) = target_decl {
-            println!(
-                r#"protocol = Proto("{decl_name}",  "{decl_name}")"#,
-                decl_name = target_packet
-            );
-            println!(r#"protocol.fields = {{}}"#);
-            let target_dissector_info = decl.to_dissector_info(&Context {
-                prefix: vec![target_packet],
-                file: analyzed_file.clone(),
-                endian: analyzed_file.endianness.value,
-            });
-            let mut decls = Vec::new();
-            target_dissector_info.collect_reachable_decls(&mut |v| decls.push(v));
-            for decl in decls {
-                decl.write_proto_fields(&mut std::io::stdout())?;
-                println!(
-                    r#"for k,v in pairs({}_protocol_fields) do protocol.fields[k] = v end"#,
-                    decl.name
-                );
-                decl.write_dissect_fn(&mut std::io::stdout())?;
+        if target_packet == "_all_" {
+            for decl in analyzed_file.declarations.iter() {
+                generate_for_decl(&target_packet, decl, &analyzed_file, writer)?;
             }
-
-            target_dissector_info.write_main_dissector(&mut std::io::stdout())?;
-
-            printdoc!(
-                r#"
-                local tcp_port = DissectorTable.get("tcp.port")
-                tcp_port:add(8000, protocol)
-                "#
-            );
         } else {
-            anyhow::bail!("Unable to find declaration {:?}", target_packet);
+            let target_decl = analyzed_file
+                .declarations
+                .iter()
+                .find(|decl| get_desc_id(&decl.desc) == target_packet);
+            if let Some(decl) = target_decl {
+                generate_for_decl(&target_packet, decl, &analyzed_file, writer)?;
+            } else {
+                anyhow::bail!("Unable to find declaration {:?}", target_packet);
+            }
         }
     }
-    printdoc!(
+    writedoc!(
+        writer,
         r#"
         -- Utils section
 
@@ -662,6 +699,46 @@ fn main() -> anyhow::Result<()> {
 
         -- End Utils section
         "#
-    );
+    )?;
     Ok(())
+}
+
+fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+    run(args, &mut std::io::stdout())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{io::BufWriter, path::PathBuf};
+
+    use crate::{run, Args};
+
+    #[test]
+    fn test_pcap() {
+        let args = Args {
+            pdl_file: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/pcap.pdl"),
+            target_packets: vec!["PcapFile".into()],
+        };
+        let mut writer = BufWriter::new(Vec::new());
+        run(args, &mut writer).unwrap();
+
+        pretty_assertions::assert_str_eq!(
+            include_str!("../tests/pcap_golden.lua"),
+            std::str::from_utf8(writer.buffer()).unwrap(),
+        );
+    }
+
+    #[test]
+    fn test_bluetooth_hci() {
+        let args = Args {
+            pdl_file: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/bluetooth_hci.pdl"),
+            target_packets: vec!["_all_".into()],
+        };
+        let mut writer = BufWriter::new(Vec::new());
+        run(args, &mut writer).unwrap();
+
+        // Just make sure it succeeds and generated non-empty result.
+        assert!(!writer.buffer().is_empty());
+    }
 }

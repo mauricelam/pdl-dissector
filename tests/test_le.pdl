@@ -1,0 +1,16 @@
+little_endian_packets
+
+enum PacketType: 8 {
+    Simple = 0,
+}
+
+// A top level packet
+packet TopLevel {
+    type: PacketType,
+    _body_
+}
+
+// A simple packet
+packet SimplePacket: TopLevel(type = Simple) {
+    scalar_value: 8,
+}

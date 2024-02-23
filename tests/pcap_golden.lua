@@ -158,7 +158,8 @@ function protocol.dissector(buffer, pinfo, tree)
     local subtree = tree:add(protocol, buffer(), "PcapFile")
     PcapFile_dissect(buffer, pinfo, subtree)
 end
-
+local tcp_port = DissectorTable.get("tcp.port")
+tcp_port:add(8000, protocol)
 -- Utils section
 
 function enforce_len_limit(num, limit, tree)
@@ -170,5 +171,3 @@ function enforce_len_limit(num, limit, tree)
 end
 
 -- End Utils section
-local tcp_port = DissectorTable.get("tcp.port")
-tcp_port:add(8000, protocol)
