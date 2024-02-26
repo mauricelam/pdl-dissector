@@ -13,4 +13,3 @@ Code in this project starts at phase 4
 ## TODO
 - [ ] Set up integration test with tshark
 - [ ] A way to specify how to add to DissectorTable
-- [ ] Generate ProtoField tables at Lua runtime so field definitions can be reused
