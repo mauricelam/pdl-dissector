@@ -2,6 +2,7 @@ little_endian_packets
 
 enum PacketType: 8 {
     Simple = 0,
+    Enum = 1,
 }
 
 // A top level packet
@@ -13,4 +14,29 @@ packet TopLevel {
 // A simple packet
 packet SimplePacket: TopLevel(type = Simple) {
     scalar_value: 8,
+}
+
+enum CoffeeAddition: 8 {
+  Empty = 0,
+
+  NonAlcoholic = 1..9 {
+    Cream = 1,
+    Vanilla = 2,
+    Chocolate = 3,
+  },
+
+  Alcoholic = 10..19 {
+    Whisky = 10,
+    Rum = 11,
+    Kahlua = 12,
+    Aquavit = 13,
+  },
+
+  Custom = 20..29,
+
+  Other = ..
+}
+
+packet EnumPacket: TopLevel(type = Enum) {
+    addition: CoffeeAddition
 }

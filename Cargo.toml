@@ -9,7 +9,11 @@ edition = "2021"
 anyhow = "1.0.79"
 clap = { version = "4.5.0", features = ["derive"] }
 env_logger = "0.11.2"
+hex-literal = "0.4.1"
 indoc = "2.0.4"
 log = "0.4.20"
 pdl-compiler = "0.2.3"
 pretty_assertions = "1.4.0"
+
+[dev-dependencies]
+mlua = { version = "0.9.5", features = ["lua54", "vendored", "macros"] }
