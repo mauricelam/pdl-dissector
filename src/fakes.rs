@@ -1,3 +1,8 @@
+//! Basic fake / mock types to make sure the generated Lua code compiles.
+//!
+//! Currently these fakes are not functional – they cannot be used to test the behavior of the
+//! callers, just whether the compilation was successful.
+
 use mlua::Lua;
 
 pub fn wireshark_lua() -> anyhow::Result<Lua> {
@@ -8,7 +13,8 @@ pub fn wireshark_lua() -> anyhow::Result<Lua> {
         .exec()?;
     lua.load(r#"DissectorTable = { get = function() return { add = function() end } end }"#)
         .exec()?;
-    lua.load(r#"
+    lua.load(
+        r#"
         function Tree()
             return {
                 add = function() return Tree() end,
@@ -16,20 +22,28 @@ pub fn wireshark_lua() -> anyhow::Result<Lua> {
                 add_expert_info = function() end,
             }
         end
-    "#).exec()?;
-    lua.load(r#"
+    "#,
+    )
+    .exec()?;
+    lua.load(
+        r#"
         function Tvb(bytes)
             local mt = {__call}
             local t = {
                 bytes = bytes,
                 len = function() return #bytes end,
                 raw = function() return bytes end,
+                uint64 = function() return 0 end,
+                uint = function() return 0 end,
             }
             setmetatable(t, {__call = function() return t end})
             return t
         end
-    "#).exec()?;
-    lua.load(r#"function new_pinfo() return { cols = {} } end"#).exec()?;
+    "#,
+    )
+    .exec()?;
+    lua.load(r#"function new_pinfo() return { cols = {} } end"#)
+        .exec()?;
     lua.load(
         r#"ftypes = {
             BOOLEAN = {},
@@ -66,6 +80,13 @@ pub fn wireshark_lua() -> anyhow::Result<Lua> {
             SYSTEM_ID = {},
             EUI64 = {},
             NONE = {},
+        }"#,
+    )
+    .exec()?;
+    lua.load(
+        r#"base = {
+            NONE = {}, DEC = {}, HEX = {}, OCT = {}, DEC_HEX = {}, HEX_DEC = {},
+            RANGE_STRING = {}, UNIT_STRING = {},
         }"#,
     )
     .exec()?;

@@ -13,7 +13,7 @@ packet TopLevel {
 
 // A simple packet
 packet SimplePacket: TopLevel(type = Simple) {
-    scalar_value: 8,
+    scalar_value: 64,
 }
 
 enum CoffeeAddition: 8 {
