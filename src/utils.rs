@@ -1,16 +1,33 @@
-use pdl_compiler::{analyzer::ast::Size, ast::EndiannessValue};
+use pdl_compiler::ast::EndiannessValue;
 
-use crate::RuntimeLenInfo;
+use crate::{ByteLen, RuntimeLenInfo};
 
-// TODO: Change arg to RuntimeLenInfo?
-pub fn ftype_lua_expr(size: Size) -> &'static str {
+pub fn ftype_lua_expr(size: RuntimeLenInfo) -> &'static str {
     match size {
-        Size::Static(8) => "ftypes.UINT8",
-        Size::Static(16) => "ftypes.UINT16",
-        Size::Static(24) => "ftypes.UINT24",
-        Size::Static(32) => "ftypes.UINT32",
-        Size::Static(64) => "ftypes.UINT64",
-        Size::Static(l) if l % 8 == 0 => "ftypes.BYTES",
+        RuntimeLenInfo::Bounded {
+            constant_factor: ByteLen(1),
+            referenced_fields: v,
+        } if v.is_empty() => "ftypes.UINT8",
+        RuntimeLenInfo::Bounded {
+            constant_factor: ByteLen(2),
+            referenced_fields: v,
+        } if v.is_empty() => "ftypes.UINT16",
+        RuntimeLenInfo::Bounded {
+            constant_factor: ByteLen(3),
+            referenced_fields: v,
+        } if v.is_empty() => "ftypes.UINT24",
+        RuntimeLenInfo::Bounded {
+            constant_factor: ByteLen(4),
+            referenced_fields: v,
+        } if v.is_empty() => "ftypes.UINT32",
+        RuntimeLenInfo::Bounded {
+            constant_factor: ByteLen(8),
+            referenced_fields: v,
+        } if v.is_empty() => "ftypes.UINT64",
+        RuntimeLenInfo::Bounded {
+            constant_factor: ByteLen(_),
+            referenced_fields: v,
+        } if v.is_empty() => "ftypes.BYTES",
         _ => "ftypes.BYTES",
     }
 }

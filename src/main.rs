@@ -39,6 +39,13 @@ trait DeclExt {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ByteLen(usize);
 
+impl ByteLen {
+    fn from_bits(bits: usize) -> Self {
+        assert!(bits % 8 == 0, "Unaligned sizes are not supported");
+        ByteLen(bits / 8)
+    }
+}
+
 impl Display for ByteLen {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
@@ -273,7 +280,7 @@ impl DeclExt for Decl<analyzer::ast::Annotation> {
                 DeclDissectorInfo::Enum {
                     name: id.clone(),
                     values: tags.clone(),
-                    len: ByteLen(width / 8),
+                    len: ByteLen::from_bits(*width),
                 }
             }
             DeclDesc::Checksum { id, .. }
@@ -466,6 +473,19 @@ impl RuntimeLenInfo {
     }
 }
 
+impl From<Size> for RuntimeLenInfo {
+    fn from(value: Size) -> Self {
+        match value {
+            Size::Static(v) => RuntimeLenInfo::Bounded {
+                referenced_fields: Vec::new(),
+                constant_factor: ByteLen::from_bits(v),
+            },
+            Size::Dynamic => RuntimeLenInfo::Unbounded,
+            Size::Unknown => RuntimeLenInfo::Unbounded,
+        }
+    }
+}
+
 trait FieldExt {
     fn to_dissector_info(
         &self,
@@ -545,7 +565,7 @@ impl FieldDissectorInfo {
                     values: _,
                     len,
                 } => {
-                    let ftype: &str = ftype_lua_expr(Size::Static(len.0 * 8));
+                    let ftype: &str = ftype_lua_expr(RuntimeLenInfo::fixed(*len));
                     Some((
                         name.to_string(),
                         format!(
@@ -755,18 +775,18 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 validate_expr: Some(r#"value == string.rep("\000", #value)"#.to_string()),
             }),
             FieldDesc::Size { field_id, width } => {
-                let ftype = ftype_lua_expr(self.annot.size);
+                let ftype = ftype_lua_expr(self.annot.size.into());
                 Some(FieldDissectorInfo::Scalar {
                     name: format!("{field_id}:size"),
                     abbr: format!("{field_id}_size"),
                     ftype,
-                    len_bytes: RuntimeLenInfo::fixed(ByteLen(width / 8)),
+                    len_bytes: RuntimeLenInfo::fixed(ByteLen::from_bits(*width)),
                     endian: ctx.endian(),
                     validate_expr: None,
                 })
             }
             FieldDesc::Count { field_id, width } => {
-                let ftype = ftype_lua_expr(self.annot.size);
+                let ftype = ftype_lua_expr(self.annot.size.into());
                 Some(FieldDissectorInfo::Scalar {
                     name: format!("{field_id}:count"),
                     abbr: format!("{field_id}_count"),
@@ -783,7 +803,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     .iter_children(decl)
                     .filter_map(|child_decl| child_decl.id().map(|c| c.to_string()))
                     .collect::<Vec<_>>();
-                let ftype = ftype_lua_expr(self.annot.size);
+                let ftype = ftype_lua_expr(self.annot.size.into());
                 let mut field_len = RuntimeLenInfo::empty();
                 field_len.add_len_field("_body_:size".into(), ByteLen(0));
                 Some(FieldDissectorInfo::Payload {
@@ -799,7 +819,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 for child_decl in ctx.scope.iter_children(decl) {
                     // Generate code for matching against constraints of the child
                 }
-                let ftype = ftype_lua_expr(self.annot.size);
+                let ftype = ftype_lua_expr(self.annot.size.into());
                 let mut field_len = RuntimeLenInfo::empty();
                 field_len.add_len_field(
                     "_payload_:size".into(),
@@ -818,19 +838,19 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 })
             }
             FieldDesc::FixedScalar { width, value } => {
-                let ftype = ftype_lua_expr(self.annot.size);
+                let ftype = ftype_lua_expr(self.annot.size.into());
                 Some(FieldDissectorInfo::Scalar {
                     name: format!("Fixed value: {value}"),
                     abbr: "_fixed_".into(),
                     ftype,
-                    len_bytes: RuntimeLenInfo::fixed(ByteLen(width / 8)),
+                    len_bytes: RuntimeLenInfo::fixed(ByteLen::from_bits(*width)),
                     endian: ctx.endian(),
                     validate_expr: Some(format!("value == {value}")),
                 })
             }
             FieldDesc::FixedEnum { enum_id, tag_id } => {
                 let referenced_enum = ctx.scope.typedef[enum_id].to_dissector_info(ctx);
-                let ftype = ftype_lua_expr(self.annot.size);
+                let ftype = ftype_lua_expr(self.annot.size.into());
                 Some(FieldDissectorInfo::Scalar {
                     name: format!("Fixed value: {tag_id}"),
                     abbr: "_fixed_".into(),
@@ -844,7 +864,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 name: String::from("_reserved_"),
                 abbr: "_reserved_".into(),
                 ftype: "ftypes.NONE",
-                len_bytes: RuntimeLenInfo::fixed(ByteLen(width / 8)),
+                len_bytes: RuntimeLenInfo::fixed(ByteLen::from_bits(*width)),
                 endian: ctx.endian(),
                 validate_expr: Some("value == 0".into()),
             }),
@@ -866,7 +886,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 ),
                 len: match (width, size_modifier, size) {
                     (Some(width), None, Some(size)) => {
-                        RuntimeLenInfo::fixed(ByteLen(width * size / 8))
+                        RuntimeLenInfo::fixed(ByteLen::from_bits(width * size))
                     }
                     (None, Some(size_modifier), Some(_size)) => {
                         let mut len = RuntimeLenInfo::empty();
@@ -881,12 +901,12 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 size: *size,
             }),
             FieldDesc::Scalar { id, width } => {
-                let ftype = ftype_lua_expr(self.annot.size);
+                let ftype = ftype_lua_expr(self.annot.size.into());
                 Some(FieldDissectorInfo::Scalar {
                     name: String::from(id),
                     abbr: id.into(),
                     ftype,
-                    len_bytes: RuntimeLenInfo::fixed(ByteLen(width / 8)),
+                    len_bytes: RuntimeLenInfo::fixed(ByteLen::from_bits(*width)),
                     endian: ctx.endian(),
                     validate_expr: None,
                 })
@@ -953,9 +973,12 @@ fn generate_for_decl(
 ) -> anyhow::Result<()> {
     let target_dissector_info = decl.to_dissector_info(&Context { scope });
 
-    writeln!(
+    writedoc!(
         writer,
-        r#"{decl_name}_protocol = Proto("{decl_name}",  "{decl_name}")"#,
+        r#"
+        -- Protocol definition for "{decl_name}"
+        {decl_name}_protocol = Proto("{decl_name}",  "{decl_name}")
+        "#,
     )?;
 
     target_dissector_info.write_main_dissector(writer)?;
@@ -1055,6 +1078,7 @@ mod tests {
 
     use crate::{fakes::wireshark_lua, run, Args};
 
+    /// Update with `cargo run -- tests/pcap.pdl PcapFile > tests/pcap_golden.lua`
     #[test]
     fn test_pcap() {
         let args = Args {
@@ -1068,6 +1092,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Requires unaligned field length
     fn test_bluetooth_hci() -> anyhow::Result<()> {
         let args = Args {
             pdl_file: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/bluetooth_hci.pdl"),
