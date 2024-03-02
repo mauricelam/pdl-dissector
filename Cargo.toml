@@ -17,3 +17,5 @@ pretty_assertions = "1.4.0"
 
 [dev-dependencies]
 mlua = { version = "0.9.5", features = ["lua54", "vendored", "macros"] }
+serde_json = "1.0.114"
+tempfile = "3.10.1"
