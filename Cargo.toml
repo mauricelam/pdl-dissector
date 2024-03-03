@@ -14,8 +14,9 @@ indoc = "2.0.4"
 log = "0.4.20"
 pdl-compiler = "0.2.3"
 pretty_assertions = "1.4.0"
+quick-xml = { version = "0.31.0", features = ["serde", "serialize"] }
+serde = { version = "1.0.197", features = ["derive"] }
 
 [dev-dependencies]
 mlua = { version = "0.9.5", features = ["lua54", "vendored", "macros"] }
-serde_json = "1.0.114"
 tempfile = "3.10.1"

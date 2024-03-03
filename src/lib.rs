@@ -2,6 +2,7 @@
 mod fakes;
 mod len_info;
 mod utils;
+pub mod pdml;
 
 use anyhow::anyhow;
 use indoc::{formatdoc, writedoc};

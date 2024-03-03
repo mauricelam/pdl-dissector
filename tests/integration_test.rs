@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
 use hex_literal::hex;
-use pdl_dissector::Args;
-use serde_json::json;
+use pdl_dissector::{
+    pdml::{self, Pdml},
+    Args,
+};
 
 #[test]
 fn golden_test() -> anyhow::Result<()> {
@@ -17,46 +19,55 @@ fn golden_test() -> anyhow::Result<()> {
     cmd.args([
         "-r",
         "tools/payload.pcap",
-        "-Tjson",
+        "-Tpdml",
         &format!("-Xlua_script:{}", file.path().to_string_lossy()),
     ]);
-    let json_output = cmd.output()?.stdout;
-    let json = serde_json::from_slice::<serde_json::Value>(&json_output)?;
-    let top_level_vec: Vec<_> = json
-        .as_array()
-        .unwrap()
+    let pdml_output = cmd.output()?.stdout;
+    let pdml: Pdml = quick_xml::de::from_str(std::str::from_utf8(&pdml_output)?)?;
+    let top_levels: Vec<&pdml::Proto> = pdml
+        .packet
         .iter()
-        .map(|item| {
-            &item.as_object().unwrap()["_source"].as_object().unwrap()["layers"]
-                .as_object()
-                .unwrap()["toplevel"]
+        .map(|packet| {
+            packet
+                .proto
+                .iter()
+                .find(|proto| proto.name == "toplevel")
+                .unwrap()
         })
         .collect();
-    let expected = json!([
-        {
-            "type": "0",
-            "scalar_value": u64::from_le_bytes(hex!("1234567812345678")).to_string(),
-        },
-        {
-            "type": "1",
-            "addition": "0",
-        },
-        {
-            "type": "1",
-            "addition": "2",
-        },
-        {
-            "type": "1",
-            "addition": "22",
-        },
-        {
-            "type": "1",
-            "addition": "68",
-        }
-    ]);
+
+    fn get_field<'a>(proto: &'a pdml::Proto, name: &str) -> Option<&'a str> {
+        proto
+            .field
+            .iter()
+            .find(|field| field.name == name)
+            .and_then(|field| field.showname.as_deref())
+    }
+    fn get_fields(proto: &pdml::Proto) -> Vec<&str> {
+        proto
+            .field
+            .iter()
+            .filter_map(|field| field.showname.as_deref())
+            .collect()
+    }
     assert_eq!(
-        expected.as_array().unwrap().iter().collect::<Vec<_>>(),
-        top_level_vec
+        vec![
+            vec![
+                "type: Simple (0)",
+                &format!(
+                    "scalar_value: {}",
+                    u64::from_le_bytes(hex!("1234567812345678"))
+                ),
+            ],
+            vec!["type: Enum (1)", "addition: Empty (0)"],
+            vec!["type: Enum (1)", "addition: NonAlcoholic: Vanilla (2)"],
+            vec!["type: Enum (1)", "addition: Custom (22)"],
+            vec!["type: Enum (1)", "addition: Other (68)"],
+        ],
+        top_levels
+            .iter()
+            .map(|tag| get_fields(tag))
+            .collect::<Vec<_>>()
     );
     Ok(())
 }
