@@ -63,6 +63,7 @@ fn golden_test() -> anyhow::Result<()> {
             vec!["type: Enum (1)", "addition: NonAlcoholic: Vanilla (2)"],
             vec!["type: Enum (1)", "addition: Custom (22)"],
             vec!["type: Enum (1)", "addition: Other (68)"],
+            vec!["type: Group (2)", "pot: 1", "offset: 2", "limit: 3"],
         ],
         top_levels
             .iter()

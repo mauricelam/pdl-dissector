@@ -13,3 +13,6 @@ I2019-01-01 00:00:00
 # Type = EnumPacket, Addition = Other(68)
 I2019-01-01 00:00:00
 00000000: 01 44
+# Type = AskBrewHistory, pot = 0x01, offset = 0x02, limit = 0x03
+I2019-01-01 00:00:00
+00000000: 02 01 02 03

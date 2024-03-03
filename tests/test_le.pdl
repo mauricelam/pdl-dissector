@@ -3,6 +3,7 @@ little_endian_packets
 enum PacketType: 8 {
     Simple = 0,
     Enum = 1,
+    Group = 2,
 }
 
 // A top level packet
@@ -11,11 +12,12 @@ packet TopLevel {
     _body_
 }
 
-// A simple packet
+// Example 1: Packet
 packet SimplePacket: TopLevel(type = Simple) {
     scalar_value: 64,
 }
 
+// Example 2: Enum
 enum CoffeeAddition: 8 {
   Empty = 0,
 
@@ -38,5 +40,17 @@ enum CoffeeAddition: 8 {
 }
 
 packet EnumPacket: TopLevel(type = Enum) {
-    addition: CoffeeAddition
+  addition: CoffeeAddition,
+}
+
+// Example 3: Group
+
+group Paged {
+  offset: 8,
+  limit: 8
+}
+
+packet AskBrewHistory: TopLevel(type = Group) {
+  pot: 8, // Coffee Pot
+  Paged
 }
