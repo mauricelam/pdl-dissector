@@ -9,7 +9,7 @@ pub enum RuntimeLenInfo {
     /// `SUM(valueof(referenced_fields)) + constant_factor`.
     Bounded {
         referenced_fields: Vec<String>,
-        constant_factor: ByteLen,
+        constant_factor: BitLen,
     },
     /// The field length is unbounded, e.g. if this is an array without a fixed
     /// size.
@@ -18,17 +18,17 @@ pub enum RuntimeLenInfo {
 
 impl RuntimeLenInfo {
     pub fn empty() -> Self {
-        Self::fixed(ByteLen(0))
+        Self::fixed(BitLen(0))
     }
 
-    pub fn fixed(size: ByteLen) -> Self {
+    pub fn fixed(size: BitLen) -> Self {
         Self::Bounded {
             referenced_fields: Vec::new(),
             constant_factor: size,
         }
     }
 
-    pub fn add_len_field(&mut self, field: String, modifier: ByteLen) {
+    pub fn add_len_field(&mut self, field: String, modifier: BitLen) {
         match self {
             RuntimeLenInfo::Bounded {
                 referenced_fields,
@@ -55,7 +55,7 @@ impl RuntimeLenInfo {
             ) => RuntimeLenInfo::Bounded {
                 referenced_fields: [referenced_fields.as_slice(), &other_referenced_fields]
                     .concat(),
-                constant_factor: ByteLen(constant_factor.0 + other_constant_factor.0),
+                constant_factor: BitLen(constant_factor.0 + other_constant_factor.0),
             },
             _ => RuntimeLenInfo::Unbounded,
         }
@@ -72,7 +72,7 @@ impl RuntimeLenInfo {
                 referenced_fields,
                 constant_factor,
             } => {
-                let mut output_code = format!("sum_or_nil({constant_factor}");
+                let mut output_code = format!("sum_or_nil({constant_factor} / 8");
                 for field in referenced_fields {
                     write!(output_code, r#", field_values["{field}"]"#).unwrap();
                 }
@@ -89,7 +89,7 @@ impl From<Size> for RuntimeLenInfo {
         match value {
             Size::Static(v) => RuntimeLenInfo::Bounded {
                 referenced_fields: Vec::new(),
-                constant_factor: ByteLen::from_bits(v),
+                constant_factor: BitLen(v),
             },
             Size::Dynamic => RuntimeLenInfo::Unbounded,
             Size::Unknown => RuntimeLenInfo::Unbounded,
@@ -98,17 +98,47 @@ impl From<Size> for RuntimeLenInfo {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct ByteLen(pub usize);
+pub struct BitLen(pub usize);
 
-impl ByteLen {
-    pub fn from_bits(bits: usize) -> Self {
-        assert!(bits % 8 == 0, "Unaligned sizes are not supported");
-        ByteLen(bits / 8)
+impl Display for BitLen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
-impl Display for ByteLen {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+#[derive(Debug, Clone)]
+pub struct FType(pub Option<BitLen>);
+
+impl FType {
+    pub fn to_lua_expr(&self) -> &'static str {
+        match self.0 {
+            Some(BitLen(1..=8)) => "ftypes.UINT8",
+            Some(BitLen(9..=16)) => "ftypes.UINT16",
+            Some(BitLen(17..=24)) => "ftypes.UINT24",
+            Some(BitLen(25..=32)) => "ftypes.UINT32",
+            Some(BitLen(33..=64)) => "ftypes.UINT64",
+            _ => "ftypes.BYTES",
+        }
+    }
+
+    pub fn to_type_len(&self) -> Option<usize> {
+        match self.0 {
+            Some(BitLen(1..=8)) => Some(8),
+            Some(BitLen(9..=16)) => Some(16),
+            Some(BitLen(17..=24)) => Some(24),
+            Some(BitLen(25..=32)) => Some(32),
+            Some(BitLen(33..=64)) => Some(64),
+            _ => None,
+        }
+    }
+}
+
+impl From<Size> for FType {
+    fn from(value: Size) -> Self {
+        match value {
+            Size::Static(v) => FType(Some(BitLen(v))),
+            Size::Dynamic => FType(None),
+            Size::Unknown => FType(None),
+        }
     }
 }

@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod fakes;
 mod len_info;
-mod utils;
 pub mod pdml;
+mod utils;
 
 use anyhow::anyhow;
 use indoc::{formatdoc, writedoc};
-use len_info::RuntimeLenInfo;
+use len_info::{FType, RuntimeLenInfo};
 use log::{debug, info};
 use pdl_compiler::{
     analyzer::{self, Scope},
@@ -18,7 +18,7 @@ use pdl_compiler::{
 use std::{fmt::Write, path::PathBuf};
 use utils::buffer_value_lua_function;
 
-use crate::{len_info::ByteLen, utils::ftype_lua_expr};
+use crate::len_info::BitLen;
 
 #[derive(Clone, Debug)]
 struct Context<'a> {
@@ -46,7 +46,7 @@ pub enum DeclDissectorInfo {
     Enum {
         name: String,
         values: Vec<Tag>,
-        len: ByteLen,
+        len: BitLen,
     },
 }
 
@@ -59,13 +59,17 @@ impl DeclDissectorInfo {
                 children,
                 constraints: _,
             } => {
-                let field_decls: Vec<(String, String)> = fields
+                let field_decls: Vec<(String, String, Option<BitLen>)> = fields
                     .iter()
                     .filter_map(|f| f.field_declaration())
                     .collect();
                 writeln!(writer, r#"function {name}_protocol_fields(fields, path)"#)?;
-                for (name, decl) in field_decls {
+                writeln!(writer, r#"    local bit_offset = 0"#)?;
+                for (name, decl, bitlen) in field_decls {
                     writeln!(writer, r#"    fields[path .. ".{name}"] = {decl}"#)?;
+                    if let Some(bitlen) = bitlen {
+                        writeln!(writer, r#"    bit_offset = (bit_offset + {bitlen}) % 8"#)?;
+                    }
                 }
                 for child in children {
                     let child_name = child.name();
@@ -263,7 +267,7 @@ impl DeclExt for Decl<analyzer::ast::Annotation> {
                 DeclDissectorInfo::Enum {
                     name: id.clone(),
                     values: tags.clone(),
-                    len: ByteLen::from_bits(*width),
+                    len: BitLen(*width),
                 }
             }
             DeclDesc::Checksum { id, .. }
@@ -389,9 +393,9 @@ pub enum FieldDissectorInfo {
         name: String,
         /// Filter name of the field (the string that is used in filters).
         abbr: String,
-        ftype: &'static str,
-        /// The number of bytes this field takes before repetition.
-        len_bytes: RuntimeLenInfo,
+        ftype: FType,
+        /// The length this field takes before repetition.
+        len: RuntimeLenInfo,
         endian: EndiannessValue,
         /// A lua-expression that yields a boolean value. If the boolean result
         /// is false, a warning will be shown in the dissected info. `value` is
@@ -403,9 +407,9 @@ pub enum FieldDissectorInfo {
         name: String,
         /// Filter name of the field (the string that is used in filters).
         abbr: String,
-        ftype: &'static str,
-        /// The number of bytes this field takes before repetition.
-        len_bytes: RuntimeLenInfo,
+        ftype: FType,
+        /// The length this field takes before repetition.
+        len: RuntimeLenInfo,
         endian: EndiannessValue,
         children: Vec<String>,
     },
@@ -427,19 +431,34 @@ pub enum FieldDissectorInfo {
 }
 
 impl FieldDissectorInfo {
-    /// Returns a pair (field_name, lua_expression), or `None` if no ProtoFields
+    /// Returns a pair (field_name, lua_expression, field_length), or `None` if no ProtoFields
     /// need to be defined.
-    pub fn field_declaration(&self) -> Option<(String, String)> {
+    pub fn field_declaration(&self) -> Option<(String, String, Option<BitLen>)> {
         match self {
             FieldDissectorInfo::Scalar {
                 name, abbr, ftype, ..
             }
             | FieldDissectorInfo::Payload {
                 name, abbr, ftype, ..
-            } => Some((
-                name.to_string(),
-                format!(r#"ProtoField.new("{name}", "{abbr}", {ftype})"#),
-            )),
+            } => Some(match ftype.0 {
+                Some(bitlen) => (
+                    name.to_string(),
+                    format!(
+                        r#"ProtoField.new("{name}", "{abbr}", {ftype}, nil, nil, create_bit_mask(bit_offset, {bitlen}, {ftype_size}))"#,
+                        ftype = ftype.to_lua_expr(),
+                        ftype_size = ftype.to_type_len().unwrap(),
+                    ),
+                    Some(bitlen),
+                ),
+                None => (
+                    name.to_string(),
+                    format!(
+                        r#"ProtoField.new("{name}", "{abbr}", {ftype})"#,
+                        ftype = ftype.to_lua_expr(),
+                    ),
+                    None,
+                ),
+            }),
             FieldDissectorInfo::Typedef {
                 name,
                 abbr,
@@ -453,12 +472,14 @@ impl FieldDissectorInfo {
                     values: _,
                     len,
                 } => {
-                    let ftype: &str = ftype_lua_expr(RuntimeLenInfo::fixed(*len));
+                    let ftype = FType(Some(*len));
                     Some((
                         name.to_string(),
                         format!(
-                            r#"ProtoField.new("{name}", "{abbr}", {ftype}, {type_name}_enum_range, base.RANGE_STRING)"#
+                            r#"ProtoField.new("{name}", "{abbr}", {}, {type_name}_enum_range, base.RANGE_STRING)"#,
+                            ftype.to_lua_expr()
                         ),
+                        None,
                     ))
                 }
             },
@@ -468,8 +489,8 @@ impl FieldDissectorInfo {
 
     pub fn len(&self) -> &RuntimeLenInfo {
         match self {
-            FieldDissectorInfo::Scalar { len_bytes: len, .. } => len,
-            FieldDissectorInfo::Payload { len_bytes: len, .. } => len,
+            FieldDissectorInfo::Scalar { len, .. } => len,
+            FieldDissectorInfo::Payload { len, .. } => len,
             FieldDissectorInfo::Typedef { len, .. } => len,
             FieldDissectorInfo::Array { len, .. } => len,
         }
@@ -481,7 +502,7 @@ impl FieldDissectorInfo {
                 name,
                 endian,
                 validate_expr,
-                len_bytes,
+                len,
                 ..
             } => {
                 let add_fn = match endian {
@@ -489,7 +510,7 @@ impl FieldDissectorInfo {
                     EndiannessValue::BigEndian => "add",
                 };
                 let len_expr = self.len().to_lua_expr();
-                let buffer_value_function = buffer_value_lua_function(*endian, len_bytes);
+                let buffer_value_function = buffer_value_lua_function(*endian, len);
                 let validate = validate_expr.as_ref().map(|validate_expr| {
                     formatdoc!(
                         r#"
@@ -506,10 +527,10 @@ impl FieldDissectorInfo {
                     r#"
                     -- {self:?}
                         local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
-                        field_values["{name}"] = buffer(i, field_len):{buffer_value_function}
+                        field_values["{name}"] = buffer(i, math.ceil(i + field_len - math.floor(i))):{buffer_value_function}
                         {validate}
                         if field_len ~= 0 then
-                            tree:{add_fn}(fields[path .. ".{name}"], buffer(i, field_len))
+                            tree:{add_fn}(fields[path .. ".{name}"], buffer(i, math.ceil(i + field_len - math.floor(i))))
                             i = i + field_len
                         end
                     "#,
@@ -518,7 +539,7 @@ impl FieldDissectorInfo {
             FieldDissectorInfo::Payload {
                 name,
                 endian,
-                len_bytes,
+                len,
                 children,
                 ..
             } => {
@@ -541,7 +562,7 @@ impl FieldDissectorInfo {
                     EndiannessValue::BigEndian => "add",
                 };
                 let len_expr = self.len().to_lua_expr();
-                let buffer_value_function = buffer_value_lua_function(*endian, len_bytes);
+                let buffer_value_function = buffer_value_lua_function(*endian, len);
                 writedoc!(
                     writer,
                     r#"
@@ -657,29 +678,29 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
             FieldDesc::Padding { size } => Some(FieldDissectorInfo::Scalar {
                 name: "Padding".into(),
                 abbr: "padding".into(),
-                ftype: "ftypes.BYTES",
-                len_bytes: RuntimeLenInfo::fixed(ByteLen(*size)),
+                ftype: FType(None),
+                len: RuntimeLenInfo::fixed(BitLen(size * 8)),
                 endian: ctx.endian(),
                 validate_expr: Some(r#"value == string.rep("\000", #value)"#.to_string()),
             }),
             FieldDesc::Size { field_id, width } => {
-                let ftype = ftype_lua_expr(self.annot.size.into());
+                let ftype = FType::from(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
                     name: format!("{field_id}:size"),
                     abbr: format!("{field_id}_size"),
                     ftype,
-                    len_bytes: RuntimeLenInfo::fixed(ByteLen::from_bits(*width)),
+                    len: RuntimeLenInfo::fixed(BitLen(*width)),
                     endian: ctx.endian(),
                     validate_expr: None,
                 })
             }
             FieldDesc::Count { field_id, width } => {
-                let ftype = ftype_lua_expr(self.annot.size.into());
+                let ftype = FType::from(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
                     name: format!("{field_id}:count"),
                     abbr: format!("{field_id}_count"),
                     ftype,
-                    len_bytes: RuntimeLenInfo::fixed(ByteLen(*width)),
+                    len: RuntimeLenInfo::fixed(BitLen(width * 8)),
                     endian: ctx.endian(),
                     validate_expr: None,
                 })
@@ -691,14 +712,14 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     .iter_children(decl)
                     .filter_map(|child_decl| child_decl.id().map(|c| c.to_string()))
                     .collect::<Vec<_>>();
-                let ftype = ftype_lua_expr(self.annot.size.into());
+                let ftype = FType::from(self.annot.size);
                 let mut field_len = RuntimeLenInfo::empty();
-                field_len.add_len_field("_body_:size".into(), ByteLen(0));
+                field_len.add_len_field("_body_:size".into(), BitLen(0));
                 Some(FieldDissectorInfo::Payload {
                     name: String::from("_body_"),
                     abbr: "_body_".into(),
                     ftype,
-                    len_bytes: field_len,
+                    len: field_len,
                     endian: ctx.endian(),
                     children,
                 })
@@ -707,43 +728,43 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 for child_decl in ctx.scope.iter_children(decl) {
                     // Generate code for matching against constraints of the child
                 }
-                let ftype = ftype_lua_expr(self.annot.size.into());
+                let ftype = FType::from(self.annot.size);
                 let mut field_len = RuntimeLenInfo::empty();
                 field_len.add_len_field(
                     "_payload_:size".into(),
                     size_modifier
                         .as_ref()
-                        .map(|s| ByteLen(s.parse::<usize>().unwrap()))
+                        .map(|s| BitLen(s.parse::<usize>().unwrap() * 8))
                         .unwrap_or_default(),
                 );
                 Some(FieldDissectorInfo::Payload {
                     name: String::from("_payload_"),
                     abbr: "_payload_".into(),
                     ftype,
-                    len_bytes: field_len,
+                    len: field_len,
                     endian: ctx.endian(),
                     children: vec![],
                 })
             }
             FieldDesc::FixedScalar { width, value } => {
-                let ftype = ftype_lua_expr(self.annot.size.into());
+                let ftype = FType::from(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
                     name: format!("Fixed value: {value}"),
                     abbr: "_fixed_".into(),
                     ftype,
-                    len_bytes: RuntimeLenInfo::fixed(ByteLen::from_bits(*width)),
+                    len: RuntimeLenInfo::fixed(BitLen(*width)),
                     endian: ctx.endian(),
                     validate_expr: Some(format!("value == {value}")),
                 })
             }
             FieldDesc::FixedEnum { enum_id, tag_id } => {
                 let referenced_enum = ctx.scope.typedef[enum_id].to_dissector_info(ctx);
-                let ftype = ftype_lua_expr(self.annot.size.into());
+                let ftype = FType::from(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
                     name: format!("Fixed value: {tag_id}"),
                     abbr: "_fixed_".into(),
                     ftype,
-                    len_bytes: referenced_enum.decl_len(),
+                    len: referenced_enum.decl_len(),
                     endian: ctx.endian(),
                     validate_expr: Some(format!("value == {tag_id}")),
                 })
@@ -751,8 +772,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
             FieldDesc::Reserved { width } => Some(FieldDissectorInfo::Scalar {
                 name: String::from("_reserved_"),
                 abbr: "_reserved_".into(),
-                ftype: "ftypes.NONE",
-                len_bytes: RuntimeLenInfo::fixed(ByteLen::from_bits(*width)),
+                ftype: FType(None),
+                len: RuntimeLenInfo::fixed(BitLen(*width)),
                 endian: ctx.endian(),
                 validate_expr: Some("value == 0".into()),
             }),
@@ -773,14 +794,12 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     .to_dissector_info(ctx),
                 ),
                 len: match (width, size_modifier, size) {
-                    (Some(width), None, Some(size)) => {
-                        RuntimeLenInfo::fixed(ByteLen::from_bits(width * size))
-                    }
+                    (Some(width), None, Some(size)) => RuntimeLenInfo::fixed(BitLen(width * size)),
                     (None, Some(size_modifier), Some(_size)) => {
                         let mut len = RuntimeLenInfo::empty();
                         len.add_len_field(
                             format!("{id}:size"),
-                            ByteLen(str::parse(size_modifier).unwrap()),
+                            BitLen(str::parse::<usize>(size_modifier).unwrap() * 8),
                         );
                         len
                     }
@@ -789,12 +808,12 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 size: *size,
             }),
             FieldDesc::Scalar { id, width } => {
-                let ftype = ftype_lua_expr(self.annot.size.into());
+                let ftype = FType::from(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
                     name: String::from(id),
                     abbr: id.into(),
                     ftype,
-                    len_bytes: RuntimeLenInfo::fixed(ByteLen::from_bits(*width)),
+                    len: RuntimeLenInfo::fixed(BitLen(*width)),
                     endian: ctx.endian(),
                     validate_expr: None,
                 })
@@ -881,6 +900,76 @@ fn generate_for_decl(
     Ok(())
 }
 
+const UTIL_FUNCTIONS: &str = r#"
+-- Utils section
+
+function enforce_len_limit(num, limit, tree)
+    if num == nil then
+        return limit
+    end
+    if num > limit then
+        tree:add_expert_info(PI_MALFORMED, PI_ERROR, "Expected " .. num .. " bytes, but only " .. limit .. " bytes remaining")
+        return limit
+    end
+    return num
+end
+
+function sum_or_nil(...)
+    local sum = 0
+    local params = table.pack(...)
+    for i=1,params.n do
+        if params[i] == nil then
+            return nil
+        end
+        sum = sum + params[i]
+    end
+    return sum
+end
+
+function create_bit_mask(offset, len, field_size)
+    local result = 0
+    for i=(field_size - offset - len),(field_size - offset - 1) do
+        result = result + 2^i
+    end
+    return result
+end
+
+function get_ftype(bit_offset, bitlen)
+    local effective_len = bit_offset % 8 + bitlen
+    if effective_len <= 8 then
+        return ftypes.UINT8, 8
+    elseif effective_len <= 16 then
+        return ftypes.UINT16, 16
+    elseif effective_len <= 32 then
+        return ftypes.UINT32, 32
+    elseif effective_len <= 64 then
+        return ftypes.UINT64, 64
+    else
+        return ftypes.BYTES, effective_len
+    end
+end
+UnalignedProtoField = {
+    new = function (name, abbr, bit_offset, bit_len)
+        return ProtoField.new(name, abbr, ftypes.BYTES)
+    end,
+}
+-- function new_proto_field(name, abbr, bit_offset, bit_len)
+--     if bit_offset % 8 ~= 0 or bit_len % 8 ~= 0 then
+--         -- Not byte aligned
+--         local effective_len = bit_offset % 8 + bit_len
+--         local ftype_len = math.ceil(effective_len / 8) * 8
+--         local ftype = ftypes.BYTES
+--         print("Created proto field " .. abbr .. " ftype=" .. ftype .. " mask=" .. create_bit_mask(bit_offset, bit_len, ftype_len))
+--         return ProtoField.new(name, abbr, ftype, nil, nil, create_bit_mask(bit_offset, bit_len, ftype_len))
+--     else
+--         -- Byte aligned
+--         return ProtoField.new(name, abbr, ftype)
+--     end
+-- end
+
+-- End Utils section
+"#;
+
 pub fn run(args: Args, writer: &mut impl std::io::Write) -> anyhow::Result<()> {
     let _ = env_logger::try_init();
 
@@ -895,6 +984,7 @@ pub fn run(args: Args, writer: &mut impl std::io::Write) -> anyhow::Result<()> {
     let analyzed_file = analyzer::analyze(&file).map_err(|msg| anyhow!("{msg:?}"))?;
     let scope = Scope::new(&analyzed_file).map_err(|msg| anyhow!("{msg:?}"))?;
     assert!(!args.target_packets.is_empty());
+    write!(writer, "{}", UTIL_FUNCTIONS)?;
     for target_packet in args.target_packets {
         for decl in analyzed_file.declarations.iter() {
             let decl_dissector_info = decl.to_dissector_info(&Context { scope: &scope });
@@ -920,37 +1010,6 @@ pub fn run(args: Args, writer: &mut impl std::io::Write) -> anyhow::Result<()> {
             }
         }
     }
-    writedoc!(
-        writer,
-        r#"
-        -- Utils section
-
-        function enforce_len_limit(num, limit, tree)
-            if num == nil then
-                return limit
-            end
-            if num > limit then
-                tree:add_expert_info(PI_MALFORMED, PI_ERROR, "Expected " .. num .. " bytes, but only " .. limit .. " bytes remaining")
-                return limit
-            end
-            return num
-        end
-
-        function sum_or_nil(...)
-            local sum = 0
-            local params = table.pack(...)
-            for i=1,params.n do
-                if params[i] == nil then
-                    return nil
-                end
-                sum = sum + params[i]
-            end
-            return sum
-        end
-
-        -- End Utils section
-        "#
-    )?;
     Ok(())
 }
 
@@ -959,7 +1018,7 @@ mod tests {
     use hex_literal::hex;
     use std::{io::BufWriter, path::PathBuf};
 
-    use crate::{fakes::wireshark_lua, run, Args};
+    use crate::{fakes::wireshark_lua, run, Args, UTIL_FUNCTIONS};
 
     /// Update with `cargo run -- tests/pcap.pdl PcapFile > tests/pcap_golden.lua`
     #[test]
@@ -998,6 +1057,22 @@ mod tests {
         let bytes = hex!("0000");
         lua.load(mlua::chunk! { TopLevel_protocol.dissector(Tvb($bytes), new_pinfo(), Tree()) })
             .exec()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_bit_mask() -> anyhow::Result<()> {
+        let lua = wireshark_lua()?;
+        lua.load(UTIL_FUNCTIONS).exec()?;
+        lua.load(mlua::chunk! {
+            function assert_hex(expected, actual)
+                assert(expected == actual, "Expected 0x" .. string.format("%x", expected) .. " but was 0x" .. string.format("%x", actual))
+            end
+            assert_hex(create_bit_mask(0, 8, 8), 0xff);
+            assert_hex(create_bit_mask(1, 2, 8), 0x60);
+            assert_hex(create_bit_mask(28, 2, 32), 0xc);
+        })
+        .exec()?;
         Ok(())
     }
 

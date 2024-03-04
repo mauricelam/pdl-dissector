@@ -63,7 +63,7 @@ pub struct Field {
     /// The actual packet data, in hex, that this field covers
     #[serde(rename = "@value")]
     pub value: Option<String>,
-    /// The representation of the packet data (`value``) as it would appear in a display filter.
+    /// The representation of the packet data (`value`) as it would appear in a display filter.
     #[serde(rename = "@show")]
-    pub show: String,
+    pub show: Option<String>,
 }

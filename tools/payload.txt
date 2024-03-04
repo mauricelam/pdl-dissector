@@ -16,3 +16,6 @@ I2019-01-01 00:00:00
 # Type = AskBrewHistory, pot = 0x01, offset = 0x02, limit = 0x03
 I2019-01-01 00:00:00
 00000000: 02 01 02 03
+# Type = Unaligned, a = 1, b = 2, c = 3, d = 4 (3 bits each for a,b,c,d)
+I2019-01-01 00:00:00
+00000000: 03 29 c0

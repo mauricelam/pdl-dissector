@@ -4,6 +4,7 @@ enum PacketType: 8 {
     Simple = 0,
     Enum = 1,
     Group = 2,
+    Unaligned = 3,
 }
 
 // A top level packet
@@ -53,4 +54,12 @@ group Paged {
 packet AskBrewHistory: TopLevel(type = Group) {
   pot: 8, // Coffee Pot
   Paged
+}
+
+// Example 4 Unaligned packet
+packet UnalignedPacket: TopLevel(type = Unaligned) {
+    a: 3,
+    b: 3,
+    c: 3,
+    d: 3,
 }
