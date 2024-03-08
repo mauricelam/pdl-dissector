@@ -3,14 +3,16 @@
 //! Currently these fakes are not functional – they cannot be used to test the behavior of the
 //! callers, just whether the compilation was successful.
 
-use mlua::Lua;
+use mlua::{chunk, Lua};
 
 pub fn wireshark_lua() -> anyhow::Result<Lua> {
     let lua = Lua::new();
-    lua.load(r#"function Proto() return {} end"#).exec()?;
-    lua.load(r#"ProtoField = {}"#).exec()?;
-    lua.load(r#"function ProtoField.new() return {} end"#)
-        .exec()?;
+    lua.load(chunk! {
+        function Proto() return { fields = {} } end
+        ProtoField = {}
+        function ProtoField.new() return {} end
+    })
+    .exec()?;
     lua.load(r#"DissectorTable = { get = function() return { add = function() end } end }"#)
         .exec()?;
     lua.load(
@@ -83,12 +85,12 @@ pub fn wireshark_lua() -> anyhow::Result<Lua> {
         }"#,
     )
     .exec()?;
-    lua.load(
-        r#"base = {
+    lua.load(chunk! {
+        base = {
             NONE = {}, DEC = {}, HEX = {}, OCT = {}, DEC_HEX = {}, HEX_DEC = {},
             RANGE_STRING = {}, UNIT_STRING = {},
-        }"#,
-    )
+        }
+    })
     .exec()?;
     Ok(lua)
 }

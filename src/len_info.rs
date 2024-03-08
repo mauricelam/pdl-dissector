@@ -28,6 +28,17 @@ impl RuntimeLenInfo {
         }
     }
 
+    pub fn bit_offset(&self) -> BitLen {
+        match self {
+            RuntimeLenInfo::Bounded {
+                referenced_fields: _,
+                constant_factor,
+            } => *constant_factor,
+            // TODO: Can unbounded array be unaligned?
+            RuntimeLenInfo::Unbounded => BitLen(0),
+        }
+    }
+
     pub fn add_len_field(&mut self, field: String, modifier: BitLen) {
         match self {
             RuntimeLenInfo::Bounded {

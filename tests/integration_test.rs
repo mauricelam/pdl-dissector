@@ -36,13 +36,6 @@ fn golden_test() -> anyhow::Result<()> {
         })
         .collect();
 
-    fn get_field<'a>(proto: &'a pdml::Proto, name: &str) -> Option<&'a str> {
-        proto
-            .field
-            .iter()
-            .find(|field| field.name == name)
-            .and_then(|field| field.showname.as_deref())
-    }
     fn get_fields(proto: &pdml::Proto) -> Vec<&str> {
         proto
             .field
@@ -50,7 +43,7 @@ fn golden_test() -> anyhow::Result<()> {
             .filter_map(|field| field.showname.as_deref())
             .collect()
     }
-    assert_eq!(
+    pretty_assertions::assert_eq!(
         vec![
             vec![
                 "type: Simple (0)",
@@ -64,6 +57,14 @@ fn golden_test() -> anyhow::Result<()> {
             vec!["type: Enum (1)", "addition: Custom (22)"],
             vec!["type: Enum (1)", "addition: Other (68)"],
             vec!["type: Group (2)", "pot: 1", "offset: 2", "limit: 3"],
+            vec![
+                "type: Unaligned (3)",
+                "001. .... = a: 1",
+                "...0 0000 010. .... = b: 2",
+                "...0 11.. = c: 3",
+                ".... ..10 0... .... = d: 4",
+                ".101 .... = e: 5"
+            ],
         ],
         top_levels
             .iter()

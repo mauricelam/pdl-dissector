@@ -1,10 +1,12 @@
 #[cfg(test)]
 mod fakes;
+mod indent_write;
 mod len_info;
 pub mod pdml;
 mod utils;
 
 use anyhow::anyhow;
+use indent_write::{FmtWriteExt, IoWriteExt};
 use indoc::{formatdoc, writedoc};
 use len_info::{FType, RuntimeLenInfo};
 use log::{debug, info};
@@ -15,7 +17,7 @@ use pdl_compiler::{
         Tag, TagOther, TagRange, TagValue,
     },
 };
-use std::{fmt::Write, path::PathBuf};
+use std::{fmt::Write as _, io::Write as _, path::PathBuf};
 use utils::buffer_value_lua_function;
 
 use crate::len_info::BitLen;
@@ -51,7 +53,7 @@ pub enum DeclDissectorInfo {
 }
 
 impl DeclDissectorInfo {
-    fn write_proto_fields(&self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
+    fn write_proto_fields(&self, mut writer: &mut impl std::io::Write) -> std::io::Result<()> {
         match self {
             DeclDissectorInfo::Sequence {
                 name,
@@ -64,18 +66,14 @@ impl DeclDissectorInfo {
                     .filter_map(|f| f.field_declaration())
                     .collect();
                 writeln!(writer, r#"function {name}_protocol_fields(fields, path)"#)?;
-                writeln!(writer, r#"    local bit_offset = 0"#)?;
-                for (name, decl, bitlen) in field_decls {
-                    writeln!(writer, r#"    fields[path .. ".{name}"] = {decl}"#)?;
-                    if let Some(bitlen) = bitlen {
-                        writeln!(writer, r#"    bit_offset = (bit_offset + {bitlen}) % 8"#)?;
-                    }
+                for (name, decl, _) in field_decls {
+                    writeln!(writer.indent(), r#"fields[path .. ".{name}"] = {decl}"#)?;
                 }
                 for child in children {
                     let child_name = child.name();
                     writeln!(
-                        writer,
-                        r#"    {child_name}_protocol_fields(fields, path .. ".{child_name}")"#
+                        writer.indent(),
+                        r#"{child_name}_protocol_fields(fields, path .. ".{child_name}")"#
                     )?;
                 }
                 writeln!(writer, r#"end"#)?;
@@ -143,7 +141,7 @@ impl DeclDissectorInfo {
                                 writer,
                                 r#"
                                 {name}_enum_matcher["{id}"] = function(v)
-                                    for k,matcher in ipairs({name}_enum_matcher) do
+                                    for k,matcher in pairs({name}_enum_matcher) do
                                         if k ~= "{id}" then
                                             if matcher(v) then
                                                 return false
@@ -168,13 +166,16 @@ impl DeclDissectorInfo {
                 writedoc!(
                     writer,
                     r#"
+                    local {name}_protocol_fields_table = {{}}
                     function {name}_protocol.dissector(buffer, pinfo, tree)
                         pinfo.cols.protocol = "{name}"
                         local subtree = tree:add({name}_protocol, buffer(), "{name}")
-                        {name}_dissect(buffer, pinfo, subtree, {name}_protocol.fields, "{name}")
+                        {name}_dissect(buffer, pinfo, subtree, {name}_protocol_fields_table, "{name}")
                     end
-                    {name}_protocol.fields = {{}}
-                    {name}_protocol_fields({name}_protocol.fields, "{name}")
+                    {name}_protocol_fields({name}_protocol_fields_table, "{name}")
+                    for name,field in pairs({name}_protocol_fields_table) do
+                        {name}_protocol.fields[name] = field.field
+                    end
                     "#,
                 )?;
             }
@@ -202,7 +203,7 @@ impl DeclDissectorInfo {
         }
     }
 
-    pub fn write_dissect_fn(&self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
+    pub fn write_dissect_fn(&self, mut writer: &mut impl std::io::Write) -> std::io::Result<()> {
         match self {
             DeclDissectorInfo::Sequence {
                 name,
@@ -220,7 +221,7 @@ impl DeclDissectorInfo {
                     "#
                 )?;
                 for field in fields {
-                    field.write_dissect_fn(writer)?;
+                    field.write_dissect_fn(&mut writer.indent())?;
                 }
                 writedoc!(
                     writer,
@@ -275,11 +276,17 @@ impl DeclExt for Decl<analyzer::ast::Annotation> {
             | DeclDesc::Packet { id, .. }
             | DeclDesc::Struct { id, .. }
             | DeclDesc::Group { id, .. } => {
+                let mut bit_offset = BitLen(0);
                 DeclDissectorInfo::Sequence {
                     name: id.clone(),
                     fields: self
                         .fields()
-                        .filter_map(|field| field.to_dissector_info(ctx, self))
+                        .filter_map(|field| {
+                            field.to_dissector_info(ctx, &bit_offset, self).map(|f| {
+                                bit_offset.0 = (bit_offset.0 + f.len().bit_offset().0) % 8;
+                                f
+                            })
+                        })
                         .collect(),
                     children: ctx
                         .scope
@@ -382,6 +389,7 @@ trait FieldExt {
     fn to_dissector_info(
         &self,
         ctx: &Context,
+        bit_offset: &BitLen,
         decl: &Decl<pdl_compiler::analyzer::ast::Annotation>,
     ) -> Option<FieldDissectorInfo>;
 }
@@ -393,6 +401,7 @@ pub enum FieldDissectorInfo {
         name: String,
         /// Filter name of the field (the string that is used in filters).
         abbr: String,
+        bit_offset: BitLen,
         ftype: FType,
         /// The length this field takes before repetition.
         len: RuntimeLenInfo,
@@ -407,6 +416,7 @@ pub enum FieldDissectorInfo {
         name: String,
         /// Filter name of the field (the string that is used in filters).
         abbr: String,
+        bit_offset: BitLen,
         ftype: FType,
         /// The length this field takes before repetition.
         len: RuntimeLenInfo,
@@ -431,33 +441,85 @@ pub enum FieldDissectorInfo {
 }
 
 impl FieldDissectorInfo {
+    pub fn is_unaligned(&self) -> bool {
+        match self {
+            FieldDissectorInfo::Scalar {
+                bit_offset, ftype, ..
+            }
+            | FieldDissectorInfo::Payload {
+                bit_offset, ftype, ..
+            } => ftype
+                .0
+                .map(|len| bit_offset.0 % 8 != 0 || len.0 % 8 != 0)
+                .unwrap_or_default(),
+            _ => false,
+        }
+    }
+
     /// Returns a pair (field_name, lua_expression, field_length), or `None` if no ProtoFields
     /// need to be defined.
     pub fn field_declaration(&self) -> Option<(String, String, Option<BitLen>)> {
         match self {
             FieldDissectorInfo::Scalar {
-                name, abbr, ftype, ..
+                name,
+                abbr,
+                ftype,
+                bit_offset,
+                ..
             }
             | FieldDissectorInfo::Payload {
-                name, abbr, ftype, ..
-            } => Some(match ftype.0 {
-                Some(bitlen) => (
+                name,
+                abbr,
+                ftype,
+                bit_offset,
+                ..
+            } => Some(if let Some(bitlen) = ftype.0 {
+                if self.is_unaligned() {
+                    (
+                        name.to_string(),
+                        formatdoc!(
+                            r#"
+                            UnalignedProtoField:new({{
+                                name = "{name}",
+                                abbr = path .. ".{abbr}",
+                                ftype = {ftype},
+                                bitoffset = {bit_offset},
+                                bitlen = {bitlen}
+                            }})"#,
+                            ftype = ftype.to_lua_expr(),
+                        ),
+                        Some(bitlen),
+                    )
+                } else {
+                    (
+                        name.to_string(),
+                        formatdoc!(
+                            r#"
+                            AlignedProtoField:new({{
+                                name = "{name}",
+                                abbr = path .. ".{abbr}",
+                                ftype = {ftype},
+                                bitlen = {bitlen}
+                            }})"#,
+                            ftype = ftype.to_lua_expr(),
+                        ),
+                        None,
+                    )
+                }
+            } else {
+                (
                     name.to_string(),
-                    format!(
-                        r#"ProtoField.new("{name}", "{abbr}", {ftype}, nil, nil, create_bit_mask(bit_offset, {bitlen}, {ftype_size}))"#,
-                        ftype = ftype.to_lua_expr(),
-                        ftype_size = ftype.to_type_len().unwrap(),
-                    ),
-                    Some(bitlen),
-                ),
-                None => (
-                    name.to_string(),
-                    format!(
-                        r#"ProtoField.new("{name}", "{abbr}", {ftype})"#,
+                    formatdoc!(
+                        r#"
+                        AlignedProtoField:new({{
+                            name = "{name}",
+                            abbr = path .. ".{abbr}",
+                            ftype = {ftype}
+                        }})"#,
                         ftype = ftype.to_lua_expr(),
                     ),
                     None,
-                ),
+                )
             }),
             FieldDissectorInfo::Typedef {
                 name,
@@ -475,8 +537,15 @@ impl FieldDissectorInfo {
                     let ftype = FType(Some(*len));
                     Some((
                         name.to_string(),
-                        format!(
-                            r#"ProtoField.new("{name}", "{abbr}", {}, {type_name}_enum_range, base.RANGE_STRING)"#,
+                        formatdoc!(
+                            r#"
+                            AlignedProtoField:new({{
+                                name = "{name}",
+                                abbr = "{abbr}",
+                                ftype = {},
+                                valuestring = {type_name}_enum_range,
+                                base = base.RANGE_STRING
+                            }})"#,
                             ftype.to_lua_expr()
                         ),
                         None,
@@ -522,19 +591,30 @@ impl FieldDissectorInfo {
                     )
                 })
                 .unwrap_or_default();
-                writedoc!(
-                    writer,
-                    r#"
-                    -- {self:?}
+                if self.is_unaligned() {
+                    writedoc!(
+                        writer,
+                        r#"
+                        -- {self:?}
+                        field_values[path .. ".{name}"], bitlen = fields[path .. ".{name}"]:dissect(tree, buffer(i))
+                        i = i + bitlen / 8
+                        "#,
+                    )?;
+                } else {
+                    writedoc!(
+                        writer,
+                        r#"
+                        -- {self:?}
                         local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
-                        field_values["{name}"] = buffer(i, math.ceil(i + field_len - math.floor(i))):{buffer_value_function}
+                        field_values["{name}"] = buffer(i, field_len):{buffer_value_function}
                         {validate}
                         if field_len ~= 0 then
-                            tree:{add_fn}(fields[path .. ".{name}"], buffer(i, math.ceil(i + field_len - math.floor(i))))
+                            tree:{add_fn}(fields[path .. ".{name}"].field, buffer(i, field_len))
                             i = i + field_len
                         end
-                    "#,
-                )?;
+                        "#,
+                    )?;
+                }
             }
             FieldDissectorInfo::Payload {
                 name,
@@ -547,12 +627,12 @@ impl FieldDissectorInfo {
                 for child_name in children {
                     // TODO: Create a subtree
                     writedoc!(
-                        match_children,
+                        match_children.indent(),
                         r#"
                         --
-                                elseif {child_name}_match_constraints(field_values) then
-                                    local dissected_len = {child_name}_dissect(buffer(i, field_len), pinfo, tree, fields, path .. ".{child_name}")
-                                    i = i + dissected_len
+                        elseif {child_name}_match_constraints(field_values) then
+                            local dissected_len = {child_name}_dissect(buffer(i, field_len), pinfo, tree, fields, path .. ".{child_name}")
+                            i = i + dissected_len
                         "#
                     )
                     .unwrap();
@@ -567,16 +647,16 @@ impl FieldDissectorInfo {
                     writer,
                     r#"
                     -- {self:?}
-                        local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
-                        field_values["{name}"] = buffer(i, field_len):{buffer_value_function}
-                        if field_len ~= 0 then
-                            if false then -- Just to make the following generated code more uniform
-                            {match_children}
-                            else
-                                tree:{add_fn}(fields[path .. ".{name}"], buffer(i, field_len))
-                                i = i + field_len
-                            end
+                    local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
+                    field_values["{name}"] = buffer(i, field_len):{buffer_value_function}
+                    if field_len ~= 0 then
+                        if false then -- Just to make the following generated code more uniform
+                        {match_children}
+                        else
+                            tree:{add_fn}(fields[path .. ".{name}"].field, buffer(i, field_len))
+                            i = i + field_len
                         end
+                    end
                     "#,
                 )?;
             }
@@ -592,17 +672,17 @@ impl FieldDissectorInfo {
                     writer,
                     r#"
                     -- {self:?}
-                        local size = field_values["{name}:count"]
-                        if size == nil then
-                            size = {size}
-                        end
-                        for j=1,size do
-                            if i >= buffer:len() then break end
-                            local subtree = tree:add(buffer(i), "{name}")
-                            local dissected_len = {type_name}_dissect(buffer(i), pinfo, subtree, fields, path)
-                            subtree:set_len(dissected_len)
-                            i = i + dissected_len
-                        end
+                    local size = field_values["{name}:count"]
+                    if size == nil then
+                        size = {size}
+                    end
+                    for j=1,size do
+                        if i >= buffer:len() then break end
+                        local subtree = tree:add(buffer(i), "{name}")
+                        local dissected_len = {type_name}_dissect(buffer(i), pinfo, subtree, fields, path)
+                        subtree:set_len(dissected_len)
+                        i = i + dissected_len
+                    end
                     "#,
                 )?;
             }
@@ -621,11 +701,11 @@ impl FieldDissectorInfo {
                         writer,
                         r#"
                         -- {self:?}
-                            local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
-                            local subtree = tree:add(buffer(i, field_len), "{name}")
-                            local dissected_len = {type_name}_dissect(buffer(i, field_len), pinfo, subtree, fields, path)
-                            subtree:set_len(dissected_len)
-                            i = i + dissected_len
+                        local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
+                        local subtree = tree:add(buffer(i, field_len), "{name}")
+                        local dissected_len = {type_name}_dissect(buffer(i, field_len), pinfo, subtree, fields, path)
+                        subtree:set_len(dissected_len)
+                        i = i + dissected_len
                         "#,
                     )?;
                 }
@@ -645,15 +725,15 @@ impl FieldDissectorInfo {
                         writer,
                         r#"
                         -- {self:?}
-                            local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
-                            field_values["{name}"] = buffer(i, field_len):{buffer_value_function}
-                            if {type_name}_enum[field_values["{name}"]] == nil then
-                                tree:add_expert_info(PI_MALFORMED, PI_WARN, "Unknown enum value: " .. field_values["{name}"])
-                            end
-                            if field_len ~= 0 then
-                                tree:{add_fn}(fields[path .. ".{name}"], buffer(i, field_len))
-                                i = i + field_len
-                            end
+                        local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
+                        field_values["{name}"] = buffer(i, field_len):{buffer_value_function}
+                        if {type_name}_enum[field_values["{name}"]] == nil then
+                            tree:add_expert_info(PI_MALFORMED, PI_WARN, "Unknown enum value: " .. field_values["{name}"])
+                        end
+                        if field_len ~= 0 then
+                            tree:{add_fn}(fields[path .. ".{name}"].field, buffer(i, field_len))
+                            i = i + field_len
+                        end
                         "#,
                     )?;
                 }
@@ -667,6 +747,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
     fn to_dissector_info(
         &self,
         ctx: &Context,
+        bit_offset: &BitLen,
         decl: &Decl<pdl_compiler::analyzer::ast::Annotation>,
     ) -> Option<FieldDissectorInfo> {
         debug!(
@@ -678,6 +759,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
             FieldDesc::Padding { size } => Some(FieldDissectorInfo::Scalar {
                 name: "Padding".into(),
                 abbr: "padding".into(),
+                bit_offset: *bit_offset,
                 ftype: FType(None),
                 len: RuntimeLenInfo::fixed(BitLen(size * 8)),
                 endian: ctx.endian(),
@@ -688,6 +770,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 Some(FieldDissectorInfo::Scalar {
                     name: format!("{field_id}:size"),
                     abbr: format!("{field_id}_size"),
+                    bit_offset: *bit_offset,
                     ftype,
                     len: RuntimeLenInfo::fixed(BitLen(*width)),
                     endian: ctx.endian(),
@@ -700,6 +783,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     name: format!("{field_id}:count"),
                     abbr: format!("{field_id}_count"),
                     ftype,
+                    bit_offset: *bit_offset,
                     len: RuntimeLenInfo::fixed(BitLen(width * 8)),
                     endian: ctx.endian(),
                     validate_expr: None,
@@ -719,6 +803,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     name: String::from("_body_"),
                     abbr: "_body_".into(),
                     ftype,
+                    bit_offset: *bit_offset,
                     len: field_len,
                     endian: ctx.endian(),
                     children,
@@ -741,6 +826,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     name: String::from("_payload_"),
                     abbr: "_payload_".into(),
                     ftype,
+                    bit_offset: *bit_offset,
                     len: field_len,
                     endian: ctx.endian(),
                     children: vec![],
@@ -752,6 +838,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     name: format!("Fixed value: {value}"),
                     abbr: "_fixed_".into(),
                     ftype,
+                    bit_offset: *bit_offset,
                     len: RuntimeLenInfo::fixed(BitLen(*width)),
                     endian: ctx.endian(),
                     validate_expr: Some(format!("value == {value}")),
@@ -764,6 +851,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     name: format!("Fixed value: {tag_id}"),
                     abbr: "_fixed_".into(),
                     ftype,
+                    bit_offset: *bit_offset,
                     len: referenced_enum.decl_len(),
                     endian: ctx.endian(),
                     validate_expr: Some(format!("value == {tag_id}")),
@@ -773,6 +861,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 name: String::from("_reserved_"),
                 abbr: "_reserved_".into(),
                 ftype: FType(None),
+                bit_offset: *bit_offset,
                 len: RuntimeLenInfo::fixed(BitLen(*width)),
                 endian: ctx.endian(),
                 validate_expr: Some("value == 0".into()),
@@ -813,6 +902,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     name: String::from(id),
                     abbr: id.into(),
                     ftype,
+                    bit_offset: *bit_offset,
                     len: RuntimeLenInfo::fixed(BitLen(*width)),
                     endian: ctx.endian(),
                     validate_expr: None,
@@ -900,76 +990,6 @@ fn generate_for_decl(
     Ok(())
 }
 
-const UTIL_FUNCTIONS: &str = r#"
--- Utils section
-
-function enforce_len_limit(num, limit, tree)
-    if num == nil then
-        return limit
-    end
-    if num > limit then
-        tree:add_expert_info(PI_MALFORMED, PI_ERROR, "Expected " .. num .. " bytes, but only " .. limit .. " bytes remaining")
-        return limit
-    end
-    return num
-end
-
-function sum_or_nil(...)
-    local sum = 0
-    local params = table.pack(...)
-    for i=1,params.n do
-        if params[i] == nil then
-            return nil
-        end
-        sum = sum + params[i]
-    end
-    return sum
-end
-
-function create_bit_mask(offset, len, field_size)
-    local result = 0
-    for i=(field_size - offset - len),(field_size - offset - 1) do
-        result = result + 2^i
-    end
-    return result
-end
-
-function get_ftype(bit_offset, bitlen)
-    local effective_len = bit_offset % 8 + bitlen
-    if effective_len <= 8 then
-        return ftypes.UINT8, 8
-    elseif effective_len <= 16 then
-        return ftypes.UINT16, 16
-    elseif effective_len <= 32 then
-        return ftypes.UINT32, 32
-    elseif effective_len <= 64 then
-        return ftypes.UINT64, 64
-    else
-        return ftypes.BYTES, effective_len
-    end
-end
-UnalignedProtoField = {
-    new = function (name, abbr, bit_offset, bit_len)
-        return ProtoField.new(name, abbr, ftypes.BYTES)
-    end,
-}
--- function new_proto_field(name, abbr, bit_offset, bit_len)
---     if bit_offset % 8 ~= 0 or bit_len % 8 ~= 0 then
---         -- Not byte aligned
---         local effective_len = bit_offset % 8 + bit_len
---         local ftype_len = math.ceil(effective_len / 8) * 8
---         local ftype = ftypes.BYTES
---         print("Created proto field " .. abbr .. " ftype=" .. ftype .. " mask=" .. create_bit_mask(bit_offset, bit_len, ftype_len))
---         return ProtoField.new(name, abbr, ftype, nil, nil, create_bit_mask(bit_offset, bit_len, ftype_len))
---     else
---         -- Byte aligned
---         return ProtoField.new(name, abbr, ftype)
---     end
--- end
-
--- End Utils section
-"#;
-
 pub fn run(args: Args, writer: &mut impl std::io::Write) -> anyhow::Result<()> {
     let _ = env_logger::try_init();
 
@@ -984,7 +1004,7 @@ pub fn run(args: Args, writer: &mut impl std::io::Write) -> anyhow::Result<()> {
     let analyzed_file = analyzer::analyze(&file).map_err(|msg| anyhow!("{msg:?}"))?;
     let scope = Scope::new(&analyzed_file).map_err(|msg| anyhow!("{msg:?}"))?;
     assert!(!args.target_packets.is_empty());
-    write!(writer, "{}", UTIL_FUNCTIONS)?;
+    write!(writer, "{}", include_str!("utils.lua"))?;
     for target_packet in args.target_packets {
         for decl in analyzed_file.declarations.iter() {
             let decl_dissector_info = decl.to_dissector_info(&Context { scope: &scope });
@@ -1018,7 +1038,7 @@ mod tests {
     use hex_literal::hex;
     use std::{io::BufWriter, path::PathBuf};
 
-    use crate::{fakes::wireshark_lua, run, Args, UTIL_FUNCTIONS};
+    use crate::{fakes::wireshark_lua, run, Args};
 
     /// Update with `cargo run -- tests/pcap.pdl PcapFile > tests/pcap_golden.lua`
     #[test]
@@ -1063,7 +1083,7 @@ mod tests {
     #[test]
     fn test_create_bit_mask() -> anyhow::Result<()> {
         let lua = wireshark_lua()?;
-        lua.load(UTIL_FUNCTIONS).exec()?;
+        lua.load(include_str!("utils.lua")).exec()?;
         lua.load(mlua::chunk! {
             function assert_hex(expected, actual)
                 assert(expected == actual, "Expected 0x" .. string.format("%x", expected) .. " but was 0x" .. string.format("%x", actual))
@@ -1071,6 +1091,22 @@ mod tests {
             assert_hex(create_bit_mask(0, 8, 8), 0xff);
             assert_hex(create_bit_mask(1, 2, 8), 0x60);
             assert_hex(create_bit_mask(28, 2, 32), 0xc);
+        })
+        .exec()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_bitstring() -> anyhow::Result<()> {
+        let lua = wireshark_lua()?;
+        lua.load(include_str!("utils.lua")).exec()?;
+        lua.load(mlua::chunk! {
+            function assert_eq(expected, actual)
+                assert(expected == actual, "Expected \"" .. tostring(expected) .. "\" but was \"" .. tostring(actual) .. "\"")
+            end
+            assert_eq("0010 0101 01", format_bitstring("0010010101"));
+            assert_eq("0010 0101", format_bitstring("00100101"));
+            assert_eq("...0 0100 101. .... ..", format_bitstring("...00100101......."));
         })
         .exec()?;
         Ok(())
