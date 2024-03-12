@@ -6,6 +6,7 @@ enum PacketType: 8 {
   Group = 2,
   Unaligned = 3,
   Checksum = 4,
+  Array = 5
 }
 
 // A top level packet
@@ -73,4 +74,17 @@ packet Packet_Checksum_Field_FromStart: TopLevel(type = Checksum) {
     a: 16,
     b: 16,
     crc: CRC16,
+}
+
+// Test declarations are ignored by the dissector compiler
+test SimplePacket {
+  "\x00\x01\x02\x03\x04\x05\x06\x07\x08"
+}
+
+// Array
+packet Brew: TopLevel(type = Array) {
+   pots: 8[2],
+   additions: CoffeeAddition[2],
+   extra_additions: CoffeeAddition[],
+   // TODO: Add test for size modifier
 }

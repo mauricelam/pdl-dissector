@@ -70,7 +70,16 @@ fn golden_test() -> anyhow::Result<()> {
                 "a: 1",
                 "b: 2",
                 "crc: 0x3412",
-            ]
+            ],
+            vec![
+                "type: Array (5)",
+                "pots: 18",
+                "pots: 52",
+                "additions: Alcoholic: Whisky (10)",
+                "additions: NonAlcoholic: Cream (1)",
+                "extra_additions: Custom (22)",
+                "extra_additions: Custom (28)",
+            ],
         ],
         top_levels
             .iter()

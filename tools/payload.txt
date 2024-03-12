@@ -22,3 +22,7 @@ I2019-01-01 00:00:00
 # Type = Checksum, a = 1, b = 2, checksum = 1234
 I2019-01-01 00:00:00
 00000000: 04 01 00 02 00 12 34
+# Type = Array, pots = [0x12, 0x34], additions = [Whisky(10), Cream(1)]
+#               extra_additions = [Custom(22), Custom(28)]
+I2019-01-01 00:00:00
+00000000: 05 12 34 0A 01 16 1C

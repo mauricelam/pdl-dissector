@@ -197,7 +197,7 @@ impl DeclDissectorInfo {
             DeclDissectorInfo::Sequence { fields, .. } => {
                 let mut field_len = RuntimeLenInfo::empty();
                 for field in fields {
-                    field_len.add(field.len());
+                    field_len.add(&field.len());
                 }
                 field_len
             }
@@ -439,16 +439,27 @@ pub enum FieldDissectorInfo {
         name: String,
         abbr: String,
         decl: Box<DeclDissectorInfo>,
-        len: RuntimeLenInfo,
         endian: EndiannessValue,
     },
-    Array {
+    TypedefArray {
         name: String,
+        abbr: String,
         decl: Box<DeclDissectorInfo>,
-        /// Length of one item in the array.
-        len: RuntimeLenInfo,
         /// Size of the array, or `None` if the array is unbounded
         size: Option<usize>,
+        size_modifier: Option<String>,
+        endian: EndiannessValue,
+    },
+    ScalarArray {
+        name: String,
+        abbr: String,
+        ftype: FType,
+        bit_offset: BitLen,
+        item_len: BitLen,
+        /// Size of the array, or `None` if the array is unbounded
+        size: Option<usize>,
+        size_modifier: Option<String>,
+        endian: EndiannessValue,
     },
 }
 
@@ -473,6 +484,13 @@ impl FieldDissectorInfo {
     pub fn field_declaration(&self) -> Option<(String, String, Option<BitLen>)> {
         match self {
             FieldDissectorInfo::Scalar {
+                name,
+                abbr,
+                ftype,
+                bit_offset,
+                ..
+            }
+            | FieldDissectorInfo::ScalarArray {
                 name,
                 abbr,
                 ftype,
@@ -537,8 +555,10 @@ impl FieldDissectorInfo {
                 name,
                 abbr,
                 decl,
-                len: _,
                 endian: _,
+            }
+            | FieldDissectorInfo::TypedefArray {
+                name, abbr, decl, ..
             } => match &**decl {
                 DeclDissectorInfo::Sequence { .. } => None,
                 DeclDissectorInfo::Enum {
@@ -584,16 +604,19 @@ impl FieldDissectorInfo {
                     ))
                 }
             },
-            FieldDissectorInfo::Array { .. } => None,
         }
     }
 
-    pub fn len(&self) -> &RuntimeLenInfo {
+    pub fn len(&self) -> RuntimeLenInfo {
         match self {
-            FieldDissectorInfo::Scalar { len, .. } => len,
-            FieldDissectorInfo::Payload { len, .. } => len,
-            FieldDissectorInfo::Typedef { len, .. } => len,
-            FieldDissectorInfo::Array { len, .. } => len,
+            Self::Scalar { len, .. } => len.clone(),
+            Self::Payload { len, .. } => len.clone(),
+            Self::Typedef { decl, .. } => decl.decl_len(),
+            Self::TypedefArray { decl, .. } => decl.decl_len(),
+            Self::ScalarArray { item_len, .. } => RuntimeLenInfo::Bounded {
+                referenced_fields: vec![],
+                constant_factor: *item_len,
+            },
         }
     }
 
@@ -606,47 +629,7 @@ impl FieldDissectorInfo {
                 len,
                 ..
             } => {
-                let add_fn = match endian {
-                    EndiannessValue::LittleEndian => "add_le",
-                    EndiannessValue::BigEndian => "add",
-                };
-                let len_expr = self.len().to_lua_expr();
-                let buffer_value_function = buffer_value_lua_function(*endian, len);
-                let validate = validate_expr.as_ref().map(|validate_expr| {
-                    formatdoc!(
-                        r#"
-                        if not (function (value) return {validate_expr} end)(field_values["{name}"]) then
-                            tree:add_expert_info(PI_MALFORMED, PI_WARN, "Validation failed: Expected `{validate_escaped}`")
-                        end
-                        "#,
-                        validate_escaped = validate_expr.replace('\\', "\\\\").replace('"', "\\\"")
-                    )
-                })
-                .unwrap_or_default();
-                if self.is_unaligned() {
-                    writedoc!(
-                        writer,
-                        r#"
-                        -- {self:?}
-                        field_values[path .. ".{name}"], bitlen = fields[path .. ".{name}"]:dissect(tree, buffer(i))
-                        i = i + bitlen / 8
-                        "#,
-                    )?;
-                } else {
-                    writedoc!(
-                        writer,
-                        r#"
-                        -- {self:?}
-                        local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
-                        field_values["{name}"] = buffer(i, field_len):{buffer_value_function}
-                        {validate}
-                        if field_len ~= 0 then
-                            tree:{add_fn}(fields[path .. ".{name}"].field, buffer(i, field_len))
-                            i = i + field_len
-                        end
-                        "#,
-                    )?;
-                }
+                self.write_scalar_dissect(writer, name, validate_expr.clone(), len, *endian)?;
             }
             FieldDissectorInfo::Payload {
                 name,
@@ -692,13 +675,20 @@ impl FieldDissectorInfo {
                     "#,
                 )?;
             }
-            FieldDissectorInfo::Array {
+            FieldDissectorInfo::Typedef {
                 name,
+                abbr: _,
                 decl,
-                len: _,
+                endian,
+            } => self.write_typedef_dissect(writer, decl, name, *endian)?,
+            FieldDissectorInfo::TypedefArray {
+                name,
+                abbr: _,
+                decl,
                 size,
+                size_modifier,
+                endian,
             } => {
-                let type_name = &decl.name();
                 let size = size.unwrap_or(65536); // Cap at 65536 to avoid infinite loop
                 writedoc!(
                     writer,
@@ -709,91 +699,179 @@ impl FieldDissectorInfo {
                         size = {size}
                     end
                     for j=1,size do
-                        if i >= buffer:len() then break end
-                        local subtree = tree:add(buffer(i), "{name}")
-                        local dissected_len = {type_name}_dissect(buffer(i), pinfo, subtree, fields, path)
-                        subtree:set_len(dissected_len)
-                        i = i + dissected_len
+                        if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
+                    "#
+                )?;
+                self.write_typedef_dissect(&mut writer.indent(), decl, name, *endian)?;
+                writeln!(writer, r#"end"#)?;
+            }
+            FieldDissectorInfo::ScalarArray {
+                name,
+                abbr,
+                size,
+                size_modifier,
+                endian,
+                item_len,
+                ftype,
+                bit_offset,
+            } => {
+                let size = size.unwrap_or(65536); // Cap at 65536 to avoid infinite loop
+                writedoc!(
+                    writer,
+                    r#"
+                    -- {self:?}
+                    local size = field_values["{name}:count"]
+                    if size == nil then
+                        size = {size}
+                    end
+                    for j=1,size do
+                        if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
+                    "#
+                )?;
+                self.write_scalar_dissect(
+                    &mut writer.indent(),
+                    name,
+                    None,
+                    &RuntimeLenInfo::Bounded {
+                        referenced_fields: vec![],
+                        constant_factor: *item_len,
+                    },
+                    *endian,
+                )?;
+                writeln!(writer, r#"end"#)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn write_scalar_dissect(
+        &self,
+        writer: &mut impl std::io::Write,
+        name: &str,
+        validate_expr: Option<String>,
+        len: &RuntimeLenInfo,
+        endian: EndiannessValue,
+    ) -> std::io::Result<()> {
+        let add_fn = match endian {
+            EndiannessValue::LittleEndian => "add_le",
+            EndiannessValue::BigEndian => "add",
+        };
+        let len_expr = self.len().to_lua_expr();
+        let buffer_value_function = buffer_value_lua_function(endian, len);
+        let validate = validate_expr.as_ref().map(|validate_expr| {
+            formatdoc!(
+                r#"
+                if not (function (value) return {validate_expr} end)(field_values["{name}"]) then
+                    tree:add_expert_info(PI_MALFORMED, PI_WARN, "Validation failed: Expected `{validate_escaped}`")
+                end
+                "#,
+                validate_escaped = validate_expr.replace('\\', "\\\\").replace('"', "\\\"")
+            )
+        })
+        .unwrap_or_default();
+        if self.is_unaligned() {
+            writedoc!(
+                writer,
+                r#"
+                -- {self:?}
+                field_values[path .. ".{name}"], bitlen = fields[path .. ".{name}"]:dissect(tree, buffer(i))
+                i = i + bitlen / 8
+                "#,
+            )?;
+        } else {
+            writedoc!(
+                writer,
+                r#"
+                -- {self:?}
+                local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
+                field_values["{name}"] = buffer(i, field_len):{buffer_value_function}
+                {validate}
+                if field_len ~= 0 then
+                    tree:{add_fn}(fields[path .. ".{name}"].field, buffer(i, field_len))
+                    i = i + field_len
+                end
+                "#,
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn write_typedef_dissect(
+        &self,
+        writer: &mut impl std::io::Write,
+        decl: &DeclDissectorInfo,
+        name: &str,
+        endian: EndiannessValue,
+    ) -> std::io::Result<()> {
+        match decl {
+            DeclDissectorInfo::Sequence {
+                name: type_name, ..
+            } => {
+                let len_expr = decl.decl_len().to_lua_expr();
+                writedoc!(
+                    writer,
+                    r#"
+                    -- {self:?}
+                    local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
+                    local subtree = tree:add(buffer(i, field_len), "{name}")
+                    local dissected_len = {type_name}_dissect(buffer(i, field_len), pinfo, subtree, fields, path)
+                    subtree:set_len(dissected_len)
+                    i = i + dissected_len
+                    "#,
+                )?;
+            }
+            DeclDissectorInfo::Enum {
+                name: type_name,
+                values: _,
+                len,
+            } => {
+                let add_fn = match endian {
+                    EndiannessValue::LittleEndian => "add_le",
+                    EndiannessValue::BigEndian => "add",
+                };
+                let len_expr = self.len().to_lua_expr();
+                let buffer_value_function =
+                    buffer_value_lua_function(endian, &RuntimeLenInfo::fixed(*len));
+                writedoc!(
+                    writer,
+                    r#"
+                    -- {self:?}
+                    local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
+                    field_values["{name}"] = buffer(i, field_len):{buffer_value_function}
+                    if {type_name}_enum[field_values["{name}"]] == nil then
+                        tree:add_expert_info(PI_MALFORMED, PI_WARN, "Unknown enum value: " .. field_values["{name}"])
+                    end
+                    if field_len ~= 0 then
+                        tree:{add_fn}(fields[path .. ".{name}"].field, buffer(i, field_len))
+                        i = i + field_len
                     end
                     "#,
                 )?;
             }
-            FieldDissectorInfo::Typedef {
-                name,
-                abbr: _,
-                decl,
+            DeclDissectorInfo::Checksum {
+                name: _type_name,
                 len,
-                endian,
-            } => match &**decl {
-                DeclDissectorInfo::Sequence {
-                    name: type_name, ..
-                } => {
-                    let len_expr = len.to_lua_expr();
-                    writedoc!(
-                        writer,
-                        r#"
-                        -- {self:?}
-                        local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
-                        local subtree = tree:add(buffer(i, field_len), "{name}")
-                        local dissected_len = {type_name}_dissect(buffer(i, field_len), pinfo, subtree, fields, path)
-                        subtree:set_len(dissected_len)
-                        i = i + dissected_len
-                        "#,
-                    )?;
-                }
-                DeclDissectorInfo::Enum {
-                    name: type_name,
-                    values: _,
-                    len,
-                } => {
-                    let add_fn = match endian {
-                        EndiannessValue::LittleEndian => "add_le",
-                        EndiannessValue::BigEndian => "add",
-                    };
-                    let len_expr = self.len().to_lua_expr();
-                    let buffer_value_function =
-                        buffer_value_lua_function(*endian, &RuntimeLenInfo::fixed(*len));
-                    writedoc!(
-                        writer,
-                        r#"
-                        -- {self:?}
-                        local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
-                        field_values["{name}"] = buffer(i, field_len):{buffer_value_function}
-                        if {type_name}_enum[field_values["{name}"]] == nil then
-                            tree:add_expert_info(PI_MALFORMED, PI_WARN, "Unknown enum value: " .. field_values["{name}"])
-                        end
-                        if field_len ~= 0 then
-                            tree:{add_fn}(fields[path .. ".{name}"].field, buffer(i, field_len))
-                            i = i + field_len
-                        end
-                        "#,
-                    )?;
-                }
-                DeclDissectorInfo::Checksum {
-                    name: _type_name,
-                    len,
-                } => {
-                    let add_fn = match endian {
-                        EndiannessValue::LittleEndian => "add_le",
-                        EndiannessValue::BigEndian => "add",
-                    };
-                    let len_expr = self.len().to_lua_expr();
-                    let buffer_value_function =
-                        buffer_value_lua_function(*endian, &RuntimeLenInfo::fixed(*len));
-                    writedoc!(
-                        writer,
-                        r#"
-                        -- {self:?}
-                        local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
-                        field_values["{name}"] = buffer(i, field_len):{buffer_value_function}
-                        if field_len ~= 0 then
-                            tree:{add_fn}(fields[path .. ".{name}"].field, buffer(i, field_len))
-                            i = i + field_len
-                        end
-                        "#,
-                    )?;
-                }
-            },
+            } => {
+                let add_fn = match endian {
+                    EndiannessValue::LittleEndian => "add_le",
+                    EndiannessValue::BigEndian => "add",
+                };
+                let len_expr = self.len().to_lua_expr();
+                let buffer_value_function =
+                    buffer_value_lua_function(endian, &RuntimeLenInfo::fixed(*len));
+                writedoc!(
+                    writer,
+                    r#"
+                    -- {self:?}
+                    local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
+                    field_values["{name}"] = buffer(i, field_len):{buffer_value_function}
+                    if field_len ~= 0 then
+                        tree:{add_fn}(fields[path .. ".{name}"].field, buffer(i, field_len))
+                        i = i + field_len
+                    end
+                    "#,
+                )?;
+            }
         }
         Ok(())
     }
@@ -932,30 +1010,34 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 type_id,
                 size_modifier,
                 size,
-            } => type_id.as_ref().map(|type_id| FieldDissectorInfo::Array {
-                name: id.clone(),
-                decl: Box::new(
-                    {
-                        let this = &ctx;
-                        this.scope.typedef.get(type_id).copied()
-                    }
-                    .expect("Unresolved typedef")
-                    .to_dissector_info(ctx),
-                ),
-                len: match (width, size_modifier, size) {
-                    (Some(width), None, Some(size)) => RuntimeLenInfo::fixed(BitLen(width * size)),
-                    (None, Some(size_modifier), Some(_size)) => {
-                        let mut len = RuntimeLenInfo::empty();
-                        len.add_len_field(
-                            format!("{id}:size"),
-                            BitLen(str::parse::<usize>(size_modifier).unwrap() * 8),
-                        );
-                        len
-                    }
-                    _ => RuntimeLenInfo::Unbounded,
-                },
-                size: *size,
-            }),
+            } => match (width, type_id) {
+                (None, Some(type_id)) => Some(FieldDissectorInfo::TypedefArray {
+                    name: id.clone(),
+                    abbr: id.clone(),
+                    decl: Box::new(
+                        {
+                            let this = &ctx;
+                            this.scope.typedef.get(type_id).copied()
+                        }
+                        .expect("Unresolved typedef")
+                        .to_dissector_info(ctx),
+                    ),
+                    size_modifier: size_modifier.clone(),
+                    size: *size,
+                    endian: ctx.endian(),
+                }),
+                (Some(width), None) => Some(FieldDissectorInfo::ScalarArray {
+                    name: id.clone(),
+                    abbr: id.clone(),
+                    size: *size,
+                    size_modifier: size_modifier.clone(),
+                    endian: ctx.endian(),
+                    ftype: FType(Some(BitLen(*width))),
+                    bit_offset: BitLen::default(),
+                    item_len: BitLen(*width),
+                }),
+                _ => unreachable!(),
+            },
             FieldDesc::Scalar { id, width } => {
                 let ftype = FType::from(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
@@ -980,12 +1062,10 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 }
                 .expect("Unresolved typedef")
                 .to_dissector_info(ctx);
-                let decl_len = dissector_info.decl_len();
                 Some(FieldDissectorInfo::Typedef {
                     name: id.into(),
                     abbr: id.into(),
                     decl: Box::new(dissector_info),
-                    len: decl_len,
                     endian: ctx.scope.file.endianness.value,
                 })
             }
