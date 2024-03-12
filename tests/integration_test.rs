@@ -65,6 +65,12 @@ fn golden_test() -> anyhow::Result<()> {
                 ".... ..10 0... .... = d: 4",
                 ".101 .... = e: 5"
             ],
+            vec![
+                "type: Checksum (4)",
+                "a: 1",
+                "b: 2",
+                "crc: 0x3412",
+            ]
         ],
         top_levels
             .iter()

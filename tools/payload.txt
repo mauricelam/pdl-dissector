@@ -19,3 +19,6 @@ I2019-01-01 00:00:00
 # Type = Unaligned, a = 1, b = 2, c = 3, d = 4, e = 5 (3 bits each for a,c,d,e. 8 bits for b)
 I2019-01-01 00:00:00
 00000000: 03 20 4e 50
+# Type = Checksum, a = 1, b = 2, checksum = 1234
+I2019-01-01 00:00:00
+00000000: 04 01 00 02 00 12 34

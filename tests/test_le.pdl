@@ -1,21 +1,22 @@
 little_endian_packets
 
 enum PacketType: 8 {
-    Simple = 0,
-    Enum = 1,
-    Group = 2,
-    Unaligned = 3,
+  Simple = 0,
+  Enum = 1,
+  Group = 2,
+  Unaligned = 3,
+  Checksum = 4,
 }
 
 // A top level packet
 packet TopLevel {
-    type: PacketType,
-    _body_
+  type: PacketType,
+  _body_
 }
 
 // Example 1: Packet
 packet SimplePacket: TopLevel(type = Simple) {
-    scalar_value: 64,
+  scalar_value: 64,
 }
 
 // Example 2: Enum
@@ -58,9 +59,18 @@ packet AskBrewHistory: TopLevel(type = Group) {
 
 // Example 4 Unaligned packet
 packet UnalignedPacket: TopLevel(type = Unaligned) {
-    a: 3,
-    b: 8,
-    c: 3,
-    d: 3,
-    e: 3,
+  a: 3,
+  b: 8,
+  c: 3,
+  d: 3,
+  e: 3,
+}
+
+checksum CRC16: 16 "crc16"
+
+packet Packet_Checksum_Field_FromStart: TopLevel(type = Checksum) {
+    _checksum_start_(crc),
+    a: 16,
+    b: 16,
+    crc: CRC16,
 }

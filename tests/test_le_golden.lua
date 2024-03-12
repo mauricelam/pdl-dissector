@@ -86,13 +86,12 @@ function UnalignedProtoField:dissect(tree, buffer)
     local buf = buffer(0, numbytes)
     local value = buf:bitfield(self.bitoffset, self.bitlen)
     local label = string.rep(".", self.bitoffset) -- First add `offset` number of dots to represent insignificant bits
-    print("field=" .. self.name .. "bitoffset=" .. self.bitoffset .. " bitlen=" .. self.bitlen)
     for i=self.bitoffset,self.bitoffset + self.bitlen-1 do
         label = label  .. buf:bitfield(i, 1) -- Then add the binary value
     end
     -- Then add the remaining insignificant bits as dots
     label = label .. string.rep(".", numbytes * 8 - self.bitlen - self.bitoffset)
-    label = label .. " = " .. self.name .. ": " .. value -- Print out the string label
+    label = format_bitstring(label) .. " = " .. self.name .. ": " .. value -- Print out the string label
     tree:add(buf, self.field, value, label):set_text(label)
     return value, self.bitlen
 end
@@ -100,7 +99,7 @@ end
 -- Add a space every 4 characters in the string
 -- Example: 0010010101 -> 0010 0101 01
 function format_bitstring(input)
-    return input:gsub("%d%d%d%d", "%0 "):gsub(" $", "")
+    return input:gsub("....", "%0 "):gsub(" $", "")
 end
 
 -- End Utils section
@@ -119,6 +118,9 @@ PacketType_enum_matcher["Group"] = function(v) return v == 2 end
 PacketType_enum[3] = "Unaligned"
 table.insert(PacketType_enum_range, {3, 3, "Unaligned"})
 PacketType_enum_matcher["Unaligned"] = function(v) return v == 3 end
+PacketType_enum[4] = "Checksum"
+table.insert(PacketType_enum_range, {4, 4, "Checksum"})
+PacketType_enum_matcher["Checksum"] = function(v) return v == 4 end
 function TopLevel_protocol_fields(fields, path)
     fields[path .. ".type"] = AlignedProtoField:new({
         name = "type",
@@ -136,12 +138,13 @@ function TopLevel_protocol_fields(fields, path)
     EnumPacket_protocol_fields(fields, path .. ".EnumPacket")
     AskBrewHistory_protocol_fields(fields, path .. ".AskBrewHistory")
     UnalignedPacket_protocol_fields(fields, path .. ".UnalignedPacket")
+    Packet_Checksum_Field_FromStart_protocol_fields(fields, path .. ".Packet_Checksum_Field_FromStart")
 end
--- Sequence { name: "TopLevel", fields: [Typedef { name: "type", abbr: "type", decl: Enum { name: "PacketType", values: [Value(TagValue { id: "Simple", loc: SourceRange { .. }, value: 0 }), Value(TagValue { id: "Enum", loc: SourceRange { .. }, value: 1 }), Value(TagValue { id: "Group", loc: SourceRange { .. }, value: 2 }), Value(TagValue { id: "Unaligned", loc: SourceRange { .. }, value: 3 })], len: BitLen(8) }, len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian }, Payload { name: "_body_", abbr: "_body_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_body_:size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: ["SimplePacket", "EnumPacket", "AskBrewHistory", "UnalignedPacket"] }], children: [Sequence { name: "SimplePacket", fields: [Scalar { name: "scalar_value", abbr: "scalar_value", bit_offset: BitLen(0), ftype: FType(Some(BitLen(64))), len: Bounded { referenced_fields: [], constant_factor: BitLen(64) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Simple" }] }, Sequence { name: "EnumPacket", fields: [Typedef { name: "addition", abbr: "addition", decl: Enum { name: "CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Enum" }] }, Sequence { name: "AskBrewHistory", fields: [Scalar { name: "pot", abbr: "pot", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, Scalar { name: "offset", abbr: "offset", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, Scalar { name: "limit", abbr: "limit", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Group" }] }, Sequence { name: "UnalignedPacket", fields: [Scalar { name: "a", abbr: "a", bit_offset: BitLen(0), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }, Scalar { name: "b", abbr: "b", bit_offset: BitLen(3), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, Scalar { name: "c", abbr: "c", bit_offset: BitLen(3), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }, Scalar { name: "d", abbr: "d", bit_offset: BitLen(6), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }, Scalar { name: "e", abbr: "e", bit_offset: BitLen(1), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Unaligned" }] }], constraints: [] }
+-- Sequence { name: "TopLevel", fields: [Typedef { name: "type", abbr: "type", decl: Enum { name: "PacketType", values: [Value(TagValue { id: "Simple", loc: SourceRange { .. }, value: 0 }), Value(TagValue { id: "Enum", loc: SourceRange { .. }, value: 1 }), Value(TagValue { id: "Group", loc: SourceRange { .. }, value: 2 }), Value(TagValue { id: "Unaligned", loc: SourceRange { .. }, value: 3 }), Value(TagValue { id: "Checksum", loc: SourceRange { .. }, value: 4 })], len: BitLen(8) }, len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian }, Payload { name: "_body_", abbr: "_body_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_body_:size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: ["SimplePacket", "EnumPacket", "AskBrewHistory", "UnalignedPacket", "Packet_Checksum_Field_FromStart"] }], children: [Sequence { name: "SimplePacket", fields: [Scalar { name: "scalar_value", abbr: "scalar_value", bit_offset: BitLen(0), ftype: FType(Some(BitLen(64))), len: Bounded { referenced_fields: [], constant_factor: BitLen(64) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Simple" }] }, Sequence { name: "EnumPacket", fields: [Typedef { name: "addition", abbr: "addition", decl: Enum { name: "CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Enum" }] }, Sequence { name: "AskBrewHistory", fields: [Scalar { name: "pot", abbr: "pot", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, Scalar { name: "offset", abbr: "offset", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, Scalar { name: "limit", abbr: "limit", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Group" }] }, Sequence { name: "UnalignedPacket", fields: [Scalar { name: "a", abbr: "a", bit_offset: BitLen(0), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }, Scalar { name: "b", abbr: "b", bit_offset: BitLen(3), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, Scalar { name: "c", abbr: "c", bit_offset: BitLen(3), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }, Scalar { name: "d", abbr: "d", bit_offset: BitLen(6), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }, Scalar { name: "e", abbr: "e", bit_offset: BitLen(1), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Unaligned" }] }, Sequence { name: "Packet_Checksum_Field_FromStart", fields: [Scalar { name: "a", abbr: "a", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: None }, Scalar { name: "b", abbr: "b", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: None }, Typedef { name: "crc", abbr: "crc", decl: Checksum { name: "CRC16", len: BitLen(16) }, len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Checksum" }] }], constraints: [] }
 function TopLevel_dissect(buffer, pinfo, tree, fields, path)
     local i = 0
     local field_values = {}
-    -- Typedef { name: "type", abbr: "type", decl: Enum { name: "PacketType", values: [Value(TagValue { id: "Simple", loc: SourceRange { .. }, value: 0 }), Value(TagValue { id: "Enum", loc: SourceRange { .. }, value: 1 }), Value(TagValue { id: "Group", loc: SourceRange { .. }, value: 2 }), Value(TagValue { id: "Unaligned", loc: SourceRange { .. }, value: 3 })], len: BitLen(8) }, len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian }
+    -- Typedef { name: "type", abbr: "type", decl: Enum { name: "PacketType", values: [Value(TagValue { id: "Simple", loc: SourceRange { .. }, value: 0 }), Value(TagValue { id: "Enum", loc: SourceRange { .. }, value: 1 }), Value(TagValue { id: "Group", loc: SourceRange { .. }, value: 2 }), Value(TagValue { id: "Unaligned", loc: SourceRange { .. }, value: 3 }), Value(TagValue { id: "Checksum", loc: SourceRange { .. }, value: 4 })], len: BitLen(8) }, len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian }
     local field_len = enforce_len_limit(sum_or_nil(8 / 8), buffer(i):len(), tree)
     field_values["type"] = buffer(i, field_len):uint()
     if PacketType_enum[field_values["type"]] == nil then
@@ -151,7 +154,7 @@ function TopLevel_dissect(buffer, pinfo, tree, fields, path)
         tree:add_le(fields[path .. ".type"].field, buffer(i, field_len))
         i = i + field_len
     end
-    -- Payload { name: "_body_", abbr: "_body_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_body_:size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: ["SimplePacket", "EnumPacket", "AskBrewHistory", "UnalignedPacket"] }
+    -- Payload { name: "_body_", abbr: "_body_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_body_:size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: ["SimplePacket", "EnumPacket", "AskBrewHistory", "UnalignedPacket", "Packet_Checksum_Field_FromStart"] }
     local field_len = enforce_len_limit(sum_or_nil(0 / 8, field_values["_body_:size"]), buffer(i):len(), tree)
     field_values["_body_"] = buffer(i, field_len):raw()
     if field_len ~= 0 then
@@ -171,6 +174,10 @@ function TopLevel_dissect(buffer, pinfo, tree, fields, path)
         --
         elseif UnalignedPacket_match_constraints(field_values) then
             local dissected_len = UnalignedPacket_dissect(buffer(i, field_len), pinfo, tree, fields, path .. ".UnalignedPacket")
+            i = i + dissected_len
+        --
+        elseif Packet_Checksum_Field_FromStart_match_constraints(field_values) then
+            local dissected_len = Packet_Checksum_Field_FromStart_dissect(buffer(i, field_len), pinfo, tree, fields, path .. ".Packet_Checksum_Field_FromStart")
             i = i + dissected_len
 
         else
@@ -391,6 +398,58 @@ function UnalignedPacket_dissect(buffer, pinfo, tree, fields, path)
 end
 function UnalignedPacket_match_constraints(field_values)
     return PacketType_enum_matcher["Unaligned"](field_values["type"])
+end
+function Packet_Checksum_Field_FromStart_protocol_fields(fields, path)
+    fields[path .. ".a"] = AlignedProtoField:new({
+        name = "a",
+        abbr = path .. ".a",
+        ftype = ftypes.UINT16,
+        bitlen = 16
+    })
+    fields[path .. ".b"] = AlignedProtoField:new({
+        name = "b",
+        abbr = path .. ".b",
+        ftype = ftypes.UINT16,
+        bitlen = 16
+    })
+    fields[path .. ".crc"] = AlignedProtoField:new({
+        name = "crc",
+        abbr = "crc",
+        ftype = ftypes.UINT16,
+        base = base.HEX,
+    })
+end
+-- Sequence { name: "Packet_Checksum_Field_FromStart", fields: [Scalar { name: "a", abbr: "a", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: None }, Scalar { name: "b", abbr: "b", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: None }, Typedef { name: "crc", abbr: "crc", decl: Checksum { name: "CRC16", len: BitLen(16) }, len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Checksum" }] }
+function Packet_Checksum_Field_FromStart_dissect(buffer, pinfo, tree, fields, path)
+    local i = 0
+    local field_values = {}
+    -- Scalar { name: "a", abbr: "a", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: None }
+    local field_len = enforce_len_limit(sum_or_nil(16 / 8), buffer(i):len(), tree)
+    field_values["a"] = buffer(i, field_len):uint()
+
+    if field_len ~= 0 then
+        tree:add_le(fields[path .. ".a"].field, buffer(i, field_len))
+        i = i + field_len
+    end
+    -- Scalar { name: "b", abbr: "b", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: None }
+    local field_len = enforce_len_limit(sum_or_nil(16 / 8), buffer(i):len(), tree)
+    field_values["b"] = buffer(i, field_len):uint()
+
+    if field_len ~= 0 then
+        tree:add_le(fields[path .. ".b"].field, buffer(i, field_len))
+        i = i + field_len
+    end
+    -- Typedef { name: "crc", abbr: "crc", decl: Checksum { name: "CRC16", len: BitLen(16) }, len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian }
+    local field_len = enforce_len_limit(sum_or_nil(16 / 8), buffer(i):len(), tree)
+    field_values["crc"] = buffer(i, field_len):uint()
+    if field_len ~= 0 then
+        tree:add_le(fields[path .. ".crc"].field, buffer(i, field_len))
+        i = i + field_len
+    end
+    return i
+end
+function Packet_Checksum_Field_FromStart_match_constraints(field_values)
+    return PacketType_enum_matcher["Checksum"](field_values["type"])
 end
 -- Protocol definition for "TopLevel"
 TopLevel_protocol = Proto("TopLevel",  "TopLevel")

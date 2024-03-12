@@ -50,6 +50,10 @@ pub enum DeclDissectorInfo {
         values: Vec<Tag>,
         len: BitLen,
     },
+    Checksum {
+        name: String,
+        len: BitLen,
+    },
 }
 
 impl DeclDissectorInfo {
@@ -156,6 +160,7 @@ impl DeclDissectorInfo {
                     }
                 }
             }
+            DeclDissectorInfo::Checksum { name: _, len: _ } => {}
         }
         Ok(())
     }
@@ -180,6 +185,7 @@ impl DeclDissectorInfo {
                 )?;
             }
             DeclDissectorInfo::Enum { .. } => unreachable!(),
+            DeclDissectorInfo::Checksum { .. } => unreachable!(),
         }
         Ok(())
     }
@@ -200,10 +206,11 @@ impl DeclDissectorInfo {
                 values: _,
                 len,
             } => RuntimeLenInfo::fixed(*len),
+            DeclDissectorInfo::Checksum { name: _, len } => RuntimeLenInfo::fixed(*len),
         }
     }
 
-    pub fn write_dissect_fn(&self, mut writer: &mut impl std::io::Write) -> std::io::Result<()> {
+    pub fn write_dissect_fn(&self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
         match self {
             DeclDissectorInfo::Sequence {
                 name,
@@ -247,6 +254,7 @@ impl DeclDissectorInfo {
                 }
             }
             DeclDissectorInfo::Enum { .. } => {}
+            DeclDissectorInfo::Checksum { .. } => {}
         }
         Ok(())
     }
@@ -255,6 +263,7 @@ impl DeclDissectorInfo {
         match self {
             DeclDissectorInfo::Sequence { name, .. } => name,
             DeclDissectorInfo::Enum { name, .. } => name,
+            DeclDissectorInfo::Checksum { name, .. } => name,
         }
     }
 }
@@ -271,8 +280,11 @@ impl DeclExt for Decl<analyzer::ast::Annotation> {
                     len: BitLen(*width),
                 }
             }
-            DeclDesc::Checksum { id, .. }
-            | DeclDesc::CustomField { id, .. }
+            DeclDesc::Checksum { id, width, .. } => DeclDissectorInfo::Checksum {
+                name: id.clone(),
+                len: BitLen(*width),
+            },
+            DeclDesc::CustomField { id, .. }
             | DeclDesc::Packet { id, .. }
             | DeclDesc::Struct { id, .. }
             | DeclDesc::Group { id, .. } => {
@@ -551,6 +563,26 @@ impl FieldDissectorInfo {
                         None,
                     ))
                 }
+                DeclDissectorInfo::Checksum {
+                    name: _type_name,
+                    len,
+                } => {
+                    let ftype = FType(Some(*len));
+                    Some((
+                        name.to_string(),
+                        formatdoc!(
+                            r#"
+                            AlignedProtoField:new({{
+                                name = "{name}",
+                                abbr = "{abbr}",
+                                ftype = {ftype},
+                                base = base.HEX,
+                            }})"#,
+                            ftype = ftype.to_lua_expr()
+                        ),
+                        None,
+                    ))
+                }
             },
             FieldDissectorInfo::Array { .. } => None,
         }
@@ -711,7 +743,7 @@ impl FieldDissectorInfo {
                 }
                 DeclDissectorInfo::Enum {
                     name: type_name,
-                    values,
+                    values: _,
                     len,
                 } => {
                     let add_fn = match endian {
@@ -737,6 +769,30 @@ impl FieldDissectorInfo {
                         "#,
                     )?;
                 }
+                DeclDissectorInfo::Checksum {
+                    name: _type_name,
+                    len,
+                } => {
+                    let add_fn = match endian {
+                        EndiannessValue::LittleEndian => "add_le",
+                        EndiannessValue::BigEndian => "add",
+                    };
+                    let len_expr = self.len().to_lua_expr();
+                    let buffer_value_function =
+                        buffer_value_lua_function(*endian, &RuntimeLenInfo::fixed(*len));
+                    writedoc!(
+                        writer,
+                        r#"
+                        -- {self:?}
+                        local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
+                        field_values["{name}"] = buffer(i, field_len):{buffer_value_function}
+                        if field_len ~= 0 then
+                            tree:{add_fn}(fields[path .. ".{name}"].field, buffer(i, field_len))
+                            i = i + field_len
+                        end
+                        "#,
+                    )?;
+                }
             },
         }
         Ok(())
@@ -755,7 +811,11 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
             self, self.annot, decl
         );
         match &self.desc {
-            FieldDesc::Checksum { field_id } => todo!(),
+            FieldDesc::Checksum { field_id: _ } => {
+                // This is the `_checksum_start_` field.
+                // Actual checksum field is a TypeDef.
+                None
+            }
             FieldDesc::Padding { size } => Some(FieldDissectorInfo::Scalar {
                 name: "Padding".into(),
                 abbr: "padding".into(),
