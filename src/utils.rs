@@ -10,9 +10,9 @@ pub fn buffer_value_lua_function(endian: EndiannessValue, len: &RuntimeLenInfo) 
         } if v.is_empty() => {
             let lua_func = match endian {
                 EndiannessValue::LittleEndian if constant_factor.0 > 32 => "uint64",
-                EndiannessValue::LittleEndian => "uint",
+                EndiannessValue::LittleEndian => "le_uint",
                 EndiannessValue::BigEndian if constant_factor.0 > 32 => "le_uint64",
-                EndiannessValue::BigEndian => "le_uint",
+                EndiannessValue::BigEndian => "uint",
             };
             format!("{lua_func}()")
         }

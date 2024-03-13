@@ -6,7 +6,8 @@ enum PacketType: 8 {
   Group = 2,
   Unaligned = 3,
   Checksum = 4,
-  Array = 5
+  Array = 5,
+  GroupConstraint = 6,
 }
 
 // A top level packet
@@ -20,8 +21,13 @@ packet SimplePacket: TopLevel(type = Simple) {
   scalar_value: 64,
 }
 
+// Test declarations are ignored by the dissector compiler
+test SimplePacket {
+  "\x00\x01\x02\x03\x04\x05\x06\x07\x08"
+}
+
 // Example 2: Enum
-enum CoffeeAddition: 8 {
+enum Enum_CoffeeAddition: 8 {
   Empty = 0,
 
   NonAlcoholic = 1..9 {
@@ -43,19 +49,19 @@ enum CoffeeAddition: 8 {
 }
 
 packet EnumPacket: TopLevel(type = Enum) {
-  addition: CoffeeAddition,
+  addition: Enum_CoffeeAddition,
 }
 
 // Example 3: Group
 
-group Paged {
+group Group_Paged {
   offset: 8,
   limit: 8
 }
 
-packet AskBrewHistory: TopLevel(type = Group) {
+packet Group_AskBrewHistory: TopLevel(type = Group) {
   pot: 8, // Coffee Pot
-  Paged
+  Group_Paged
 }
 
 // Example 4 Unaligned packet
@@ -67,24 +73,31 @@ packet UnalignedPacket: TopLevel(type = Unaligned) {
   e: 3,
 }
 
+// Example 5 Checksum
 checksum CRC16: 16 "crc16"
 
-packet Packet_Checksum_Field_FromStart: TopLevel(type = Checksum) {
+packet ChecksumPacket: TopLevel(type = Checksum) {
     _checksum_start_(crc),
     a: 16,
     b: 16,
     crc: CRC16,
 }
 
-// Test declarations are ignored by the dissector compiler
-test SimplePacket {
-  "\x00\x01\x02\x03\x04\x05\x06\x07\x08"
+// Example 6 Array
+packet Array_Brew: TopLevel(type = Array) {
+   pots: 8[2],
+   additions: Enum_CoffeeAddition[2],
+   extra_additions: Enum_CoffeeAddition[],
+   // TODO: Add test for size modifier
 }
 
-// Array
-packet Brew: TopLevel(type = Array) {
-   pots: 8[2],
-   additions: CoffeeAddition[2],
-   extra_additions: CoffeeAddition[],
-   // TODO: Add test for size modifier
+// Example 7 Constrained Group
+group GroupConstraint_Group {
+    a: 16
+}
+struct GroupConstraint_Struct {
+    GroupConstraint_Group { a = 42 },
+}
+packet GroupConstraint_Packet: TopLevel(type = GroupConstraint) {
+    s: GroupConstraint_Struct,
 }

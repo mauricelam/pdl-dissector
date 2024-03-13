@@ -36,12 +36,20 @@ fn golden_test() -> anyhow::Result<()> {
         })
         .collect();
 
-    fn get_fields(proto: &pdml::Proto) -> Vec<&str> {
-        proto
-            .field
-            .iter()
-            .filter_map(|field| field.showname.as_deref())
-            .collect()
+    fn get_fields(proto: &pdml::Proto) -> Vec<String> {
+        let mut v = vec![];
+        fn push_field<'f>(v: &mut Vec<String>, field: &'f pdml::Field, prefix: String) {
+            if let Some(string) = field.showname.as_deref() {
+                v.push(format!("{prefix}{string}"));
+            }
+            for child_field in &field.field {
+                push_field(v, child_field, format!("  {prefix}"));
+            }
+        }
+        for field in &proto.field {
+            push_field(&mut v, field, String::new());
+        }
+        v
     }
     pretty_assertions::assert_eq!(
         vec![
@@ -65,12 +73,7 @@ fn golden_test() -> anyhow::Result<()> {
                 ".... ..10 0... .... = d: 4",
                 ".101 .... = e: 5"
             ],
-            vec![
-                "type: Checksum (4)",
-                "a: 1",
-                "b: 2",
-                "crc: 0x3412",
-            ],
+            vec!["type: Checksum (4)", "a: 1", "b: 2", "crc: 0x3412",],
             vec![
                 "type: Array (5)",
                 "pots: 18",
@@ -79,6 +82,21 @@ fn golden_test() -> anyhow::Result<()> {
                 "additions: NonAlcoholic: Cream (1)",
                 "extra_additions: Custom (22)",
                 "extra_additions: Custom (28)",
+            ],
+            vec![
+                "type: GroupConstraint (6)",
+                "s",
+                "  Fixed value: 42",
+            ],
+            vec![
+                "type: GroupConstraint (6)",
+                "s",
+                "  Fixed value: 0",
+                "    Expert Info (Warning/Malformed): Error: Expected `value == 42`",
+                "      Error: Expected `value == 42`",
+                "      Message: Error: Expected `value == 42`",
+                "      Severity level: Warning",
+                "      Group: Malformed",
             ],
         ],
         top_levels

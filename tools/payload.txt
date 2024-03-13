@@ -1,28 +1,44 @@
 # Type = SimplePacket, scalar_value = 0x1234567812345678
 I2019-01-01 00:00:00
 00000000: 00 12 34 56 78 12 34 56 78
+
 # Type = EnumPacket, Addition = Empty(0)
 I2019-01-01 00:00:00
 00000000: 01 00
+
 # Type = EnumPacket, Addition = Vanilla(2)
 I2019-01-01 00:00:00
 00000000: 01 02
+
 # Type = EnumPacket, Addition = Custom(22)
 I2019-01-01 00:00:00
 00000000: 01 16
+
 # Type = EnumPacket, Addition = Other(68)
 I2019-01-01 00:00:00
 00000000: 01 44
+
 # Type = AskBrewHistory, pot = 0x01, offset = 0x02, limit = 0x03
 I2019-01-01 00:00:00
 00000000: 02 01 02 03
+
 # Type = Unaligned, a = 1, b = 2, c = 3, d = 4, e = 5 (3 bits each for a,c,d,e. 8 bits for b)
 I2019-01-01 00:00:00
 00000000: 03 20 4e 50
+
 # Type = Checksum, a = 1, b = 2, checksum = 1234
 I2019-01-01 00:00:00
 00000000: 04 01 00 02 00 12 34
+
 # Type = Array, pots = [0x12, 0x34], additions = [Whisky(10), Cream(1)]
 #               extra_additions = [Custom(22), Custom(28)]
 I2019-01-01 00:00:00
 00000000: 05 12 34 0A 01 16 1C
+
+# Type = GroupConstraint, s.a = 42
+I2019-01-01 00:00:00
+00000000: 06 2a 00
+
+# Type = GroupConstraint, s.a = 00 (Invalid)
+I2019-01-01 00:00:00
+00000000: 06 00 00

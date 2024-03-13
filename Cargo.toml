@@ -15,7 +15,7 @@ indoc = "2.0.4"
 log = "0.4.20"
 pdl-compiler = "0.2.3"
 pretty_assertions = "1.4.0"
-quick-xml = { version = "0.31.0", features = ["serde", "serialize"] }
+quick-xml = { version = "0.31.0", features = ["serde", "serialize", "overlapped-lists"] }
 serde = { version = "1.0.197", features = ["derive"] }
 
 [dev-dependencies]

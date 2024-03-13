@@ -66,4 +66,6 @@ pub struct Field {
     /// The representation of the packet data (`value`) as it would appear in a display filter.
     #[serde(rename = "@show")]
     pub show: Option<String>,
+    #[serde(default)]
+    pub field: Vec<Field>,
 }
