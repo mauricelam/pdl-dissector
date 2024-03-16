@@ -73,7 +73,7 @@ function UnalignedProtoField:new(o)
         abbr = nil,
         ftype = nil,
         bitoffset = nil,
-        bitlen = nil
+        bitlen = nil, -- optional
     }
     o.field = ProtoField.new(o.name, o.abbr, ftypes.BYTES)
     setmetatable(o, self)
@@ -81,19 +81,23 @@ function UnalignedProtoField:new(o)
     return o
 end
 -- Adds dissection info into `tree`, and returns (value, bit_length)
-function UnalignedProtoField:dissect(tree, buffer)
-    local numbytes = math.ceil((self.bitlen + self.bitoffset) / 8)
+function UnalignedProtoField:dissect(tree, buffer, runtime_len)
+    local bitlen = self.bitlen
+    if bitlen == nil then
+        bitlen = runtime_len * 8
+    end
+    local numbytes = math.ceil((bitlen + self.bitoffset) / 8)
     local buf = buffer(0, numbytes)
-    local value = buf:bitfield(self.bitoffset, self.bitlen)
+    local value = buf:bitfield(self.bitoffset, bitlen)
     local label = string.rep(".", self.bitoffset) -- First add `offset` number of dots to represent insignificant bits
-    for i=self.bitoffset,self.bitoffset + self.bitlen-1 do
+    for i=self.bitoffset,self.bitoffset + bitlen-1 do
         label = label  .. buf:bitfield(i, 1) -- Then add the binary value
     end
     -- Then add the remaining insignificant bits as dots
-    label = label .. string.rep(".", numbytes * 8 - self.bitlen - self.bitoffset)
+    label = label .. string.rep(".", numbytes * 8 - bitlen - self.bitoffset)
     label = format_bitstring(label) .. " = " .. self.name .. ": " .. value -- Print out the string label
     tree:add(buf, self.field, value, label):set_text(label)
-    return value, self.bitlen
+    return value, bitlen
 end
 
 -- Add a space every 4 characters in the string

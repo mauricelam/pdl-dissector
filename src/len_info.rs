@@ -85,7 +85,7 @@ impl RuntimeLenInfo {
             } => {
                 let mut output_code = format!("sum_or_nil({constant_factor} / 8");
                 for field in referenced_fields {
-                    write!(output_code, r#", field_values["{field}"]"#).unwrap();
+                    write!(output_code, r#", field_values[path .. ".{field}"]"#).unwrap();
                 }
                 write!(output_code, ")").unwrap();
                 output_code
