@@ -38,7 +38,7 @@ fn golden_test() -> anyhow::Result<()> {
 
     fn get_fields(proto: &pdml::Proto) -> Vec<String> {
         let mut v = vec![];
-        fn push_field<'f>(v: &mut Vec<String>, field: &'f pdml::Field, prefix: String) {
+        fn push_field(v: &mut Vec<String>, field: &pdml::Field, prefix: String) {
             if let Some(string) = field.showname.as_deref() {
                 v.push(format!("{prefix}{string}"));
             }

@@ -8,6 +8,8 @@ enum PacketType: 8 {
   Checksum = 4,
   Array = 5,
   GroupConstraint = 6,
+  Size_Parent = 7,
+  Size_Array = 8,
 }
 
 // A top level packet
@@ -16,7 +18,7 @@ packet TopLevel {
   _body_
 }
 
-// Example 1: Packet
+// Example 0: Packet
 packet SimplePacket: TopLevel(type = Simple) {
   scalar_value: 64,
 }
@@ -26,7 +28,7 @@ test SimplePacket {
   "\x00\x01\x02\x03\x04\x05\x06\x07\x08"
 }
 
-// Example 2: Enum
+// Example 1: Enum
 enum Enum_CoffeeAddition: 8 {
   Empty = 0,
 
@@ -52,7 +54,7 @@ packet EnumPacket: TopLevel(type = Enum) {
   addition: Enum_CoffeeAddition,
 }
 
-// Example 3: Group
+// Example 2: Group
 
 group Group_Paged {
   offset: 8,
@@ -64,7 +66,7 @@ packet Group_AskBrewHistory: TopLevel(type = Group) {
   Group_Paged
 }
 
-// Example 4 Unaligned packet
+// Example 3: Unaligned packet
 packet UnalignedPacket: TopLevel(type = Unaligned) {
   a: 3,
   b: 8,
@@ -73,7 +75,7 @@ packet UnalignedPacket: TopLevel(type = Unaligned) {
   e: 3,
 }
 
-// Example 5 Checksum
+// Example 4: Checksum
 checksum CRC16: 16 "crc16"
 
 packet ChecksumPacket: TopLevel(type = Checksum) {
@@ -83,7 +85,7 @@ packet ChecksumPacket: TopLevel(type = Checksum) {
     crc: CRC16,
 }
 
-// Example 6 Array
+// Example 5: Array
 packet Array_Brew: TopLevel(type = Array) {
    pots: 8[2],
    additions: Enum_CoffeeAddition[2],
@@ -91,7 +93,7 @@ packet Array_Brew: TopLevel(type = Array) {
    // TODO: Add test for size modifier
 }
 
-// Example 7 Constrained Group
+// Example 6: Constrained Group
 group GroupConstraint_Group {
     a: 16
 }
@@ -101,3 +103,20 @@ struct GroupConstraint_Struct {
 packet GroupConstraint_Packet: TopLevel(type = GroupConstraint) {
     s: GroupConstraint_Struct,
 }
+
+// Example 7: Size field (parent)
+
+packet Size_Parent: TopLevel(type = Size_Parent) {
+  _size_(_payload_): 2,
+  _payload_
+}
+
+// Example 8: Size field (array)
+
+packet Size_Brew {
+  pot: 8,
+  _size_(additions): 8,
+  additions: Enum_CoffeeAddition[]
+}
+
+// TODO: Test inheritance without constraints

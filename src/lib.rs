@@ -18,7 +18,7 @@ use pdl_compiler::{
     },
 };
 use std::{fmt::Write as _, io::Write as _, path::PathBuf};
-use utils::buffer_value_lua_function;
+use utils::{buffer_value_lua_function, lua_if_then_else};
 
 use crate::len_info::BitLen;
 
@@ -636,20 +636,6 @@ impl FieldDissectorInfo {
                 children,
                 ..
             } => {
-                let mut match_children = String::new();
-                for child_name in children {
-                    // TODO: Create a subtree
-                    writedoc!(
-                        match_children.indent(),
-                        r#"
-                        --
-                        elseif {child_name}_match_constraints(field_values) then
-                            local dissected_len = {child_name}_dissect(buffer(i, field_len), pinfo, tree, fields, path .. ".{child_name}")
-                            i = i + dissected_len
-                        "#
-                    )
-                    .unwrap();
-                }
                 let add_fn = match endian {
                     EndiannessValue::LittleEndian => "add_le",
                     EndiannessValue::BigEndian => "add",
@@ -663,15 +649,34 @@ impl FieldDissectorInfo {
                     local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
                     field_values["{abbr}"] = buffer(i, field_len):{buffer_value_function}
                     if field_len ~= 0 then
-                        if false then -- Just to make the following generated code more uniform
-                        {match_children}
-                        else
-                            tree:{add_fn}(fields[path .. ".{abbr}"].field, buffer(i, field_len))
-                            i = i + field_len
-                        end
-                    end
                     "#,
                 )?;
+                lua_if_then_else(
+                    writer.indent(),
+                    children.iter().map(|child_name| {
+                        (
+                            format!("{child_name}_match_constraints(field_values)"),
+                            move |w: &mut dyn std::io::Write| {
+                                // TODO: Create a subtree?
+                                writedoc!(
+                                    w,
+                                    r#"
+                                    local dissected_len = {child_name}_dissect(buffer(i, field_len), pinfo, tree, fields, path .. ".{child_name}")
+                                    i = i + dissected_len
+                                    "#,
+                                )
+                            }
+                    )
+            }), Some(|w: &mut dyn std::io::Write| {
+                    writedoc!(
+                        w,
+                        r#"
+                        tree:{add_fn}(fields[path .. ".{abbr}"].field, buffer(i, field_len))
+                            i = i + field_len
+                        "#,
+                    )
+                }))?;
+                writeln!(writer, "end")?;
             }
             FieldDissectorInfo::Typedef {
                 name,
