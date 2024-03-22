@@ -99,6 +99,13 @@ fn golden_test() -> anyhow::Result<()> {
                 "11.. .... = Size(Payload): 3",
                 &format!("..00 0000 0100 0000 1000 0000 11.. .... = Payload: {}", 0x010203),
             ],
+            vec![
+                "type: Size_Array (8)",
+                "pot: 18",
+                "Size(additions): 2",
+                "additions: Alcoholic: Rum (11)",
+                "additions: Custom (24)",
+            ],
         ],
         top_levels
             .iter()

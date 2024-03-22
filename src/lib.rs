@@ -384,7 +384,9 @@ impl ConstraintDissectorInfo {
                 enum_type,
                 enum_value,
             } => {
-                format!(r#"{enum_type}_enum_matcher["{enum_value}"](field_values[path .. ".{field}"])"#)
+                format!(
+                    r#"{enum_type}_enum_matcher["{enum_value}"](field_values[path .. ".{field}"])"#
+                )
             }
             ConstraintDissectorInfo::ValueMatch { field, value } => {
                 format!(r#"field_values[path .. ".{field}"] == {value}"#)
@@ -617,7 +619,7 @@ impl FieldDissectorInfo {
                 self.write_scalar_dissect(
                     writer,
                     abbr,
-                    &vec![],
+                    &[],
                     validate_expr.clone(),
                     len,
                     *endian,
@@ -651,11 +653,14 @@ impl FieldDissectorInfo {
                     writer,
                     r#"
                     -- {self:?}
-                    local size = field_values[path .. ".{name}:count"]
+                    local size = field_values[path .. ".{name}_count"]
                     if size == nil then
                         size = {size}
                     end
+                    local len_limit = field_values[path .. ".{name}_size"]
+                    local initial_i = i
                     for j=1,size do
+                        if len_limit ~= nil and i - initial_i >= len_limit then break end
                         if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
                     "#
                 )?;
@@ -677,7 +682,7 @@ impl FieldDissectorInfo {
                     writer,
                     r#"
                     -- {self:?}
-                    local size = field_values[path .. ".{abbr}:count"]
+                    local size = field_values[path .. ".{abbr}_count"]
                     if size == nil then
                         size = {size}
                     end
@@ -902,7 +907,13 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
             FieldDesc::Count { field_id, width } => {
                 let ftype = FType::from(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
-                    display_name: format!("{field_id}:count"),
+                    display_name: format!(
+                        "Count({field_id})",
+                        field_id = match field_id.as_str() {
+                            "_payload_" => "Payload",
+                            _ => field_id,
+                        }
+                    ),
                     abbr: format!("{field_id}_count"),
                     ftype,
                     bit_offset: *bit_offset,

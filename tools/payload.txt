@@ -43,6 +43,11 @@ I2019-01-01 00:00:00
 I2019-01-01 00:00:00
 00000000: 06 00 00
 
-# Type = Size, size = 3, payload = 0x010203
+# Type = Size_Parent, size = 3, payload = 0x010203
 I2019-01-01 00:00:00
 00000000: 07 c0 40 80 c0
+
+# Type = Size_Brew, pot: 18, size: 2, additions = [Rum, Custom(24)]
+# TODO: extra 00 byte at the end should trigger warning
+I2019-01-01 00:00:00
+00000000: 08 12 02 0b 18 00

@@ -113,7 +113,14 @@ packet Size_Parent: TopLevel(type = Size_Parent) {
 
 // Example 8: Size field (array)
 
-packet Size_Brew {
+enum Size_16bitEnum: 16 {
+  A = 1,
+  B = 2,
+  Custom = 3..5,
+  Other = ..
+}
+
+packet Size_Brew: TopLevel(type = Size_Array) {
   pot: 8,
   _size_(additions): 8,
   additions: Enum_CoffeeAddition[]

@@ -37,6 +37,8 @@ pub fn wireshark_lua() -> anyhow::Result<Lua> {
                 raw = function() return bytes end,
                 uint64 = function() return 0 end,
                 uint = function() return 0 end,
+                le_uint = function() return 0 end,
+                le_uint64 = function() return 0 end,
             }
             setmetatable(t, {__call = function() return t end})
             return t
