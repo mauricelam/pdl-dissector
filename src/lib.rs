@@ -233,21 +233,23 @@ impl DeclDissectorInfo {
                     end
                     "#
                 )?;
-                if !constraints.is_empty() {
-                    let constraints_lua = constraints
+                let constraints_lua = if constraints.is_empty() {
+                    String::from("true")
+                } else {
+                    constraints
                         .iter()
                         .map(|c| c.to_lua_expr())
                         .collect::<Vec<_>>()
-                        .join(" and ");
-                    writedoc!(
-                        writer,
-                        r#"
-                        function {name}_match_constraints(field_values, path)
-                            return {constraints_lua}
-                        end
-                        "#
-                    )?;
-                }
+                        .join(" and ")
+                };
+                writedoc!(
+                    writer,
+                    r#"
+                    function {name}_match_constraints(field_values, path)
+                        return {constraints_lua}
+                    end
+                    "#
+                )?;
             }
             DeclDissectorInfo::Enum { .. } => {}
             DeclDissectorInfo::Checksum { .. } => {}
@@ -616,14 +618,7 @@ impl FieldDissectorInfo {
                 len,
                 ..
             } => {
-                self.write_scalar_dissect(
-                    writer,
-                    abbr,
-                    &[],
-                    validate_expr.clone(),
-                    len,
-                    *endian,
-                )?;
+                self.write_scalar_dissect(writer, abbr, &[], validate_expr.clone(), len, *endian)?;
             }
             FieldDissectorInfo::Payload {
                 abbr,

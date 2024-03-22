@@ -10,6 +10,7 @@ enum PacketType: 8 {
   GroupConstraint = 6,
   Size_Parent = 7,
   Size_Array = 8,
+  InheritanceWithoutConstraint = 9,
 }
 
 // A top level packet
@@ -126,4 +127,12 @@ packet Size_Brew: TopLevel(type = Size_Array) {
   additions: Enum_CoffeeAddition[]
 }
 
-// TODO: Test inheritance without constraints
+// Example 9: Inheritance without constraints
+
+packet AbstractParent: TopLevel(type = InheritanceWithoutConstraint) {
+  _body_
+}
+
+packet ChildWithoutConstraints: AbstractParent {
+  field: 8
+}

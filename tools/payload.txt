@@ -51,3 +51,7 @@ I2019-01-01 00:00:00
 # TODO: extra 00 byte at the end should trigger warning
 I2019-01-01 00:00:00
 00000000: 08 12 02 0b 18 00
+
+# Type = InheritanceWithoutConstraint
+I2019-01-01 00:00:00
+00000000: 09 88

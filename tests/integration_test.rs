@@ -106,6 +106,10 @@ fn golden_test() -> anyhow::Result<()> {
                 "additions: Alcoholic: Rum (11)",
                 "additions: Custom (24)",
             ],
+            vec![
+                "type: InheritanceWithoutConstraint (9)",
+                "field: 136",
+            ],
         ],
         top_levels
             .iter()
