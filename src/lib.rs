@@ -6,7 +6,7 @@ pub mod pdml;
 mod utils;
 
 use anyhow::anyhow;
-use indent_write::{FmtWriteExt, IoWriteExt};
+use indent_write::IoWriteExt;
 use indoc::{formatdoc, writedoc};
 use len_info::{FType, RuntimeLenInfo};
 use log::{debug, info};
@@ -17,7 +17,7 @@ use pdl_compiler::{
         Tag, TagOther, TagRange, TagValue,
     },
 };
-use std::{fmt::Write as _, io::Write as _, path::PathBuf};
+use std::{io::Write as _, path::PathBuf};
 use utils::{buffer_value_lua_function, lua_if_then_else};
 
 use crate::len_info::BitLen;
