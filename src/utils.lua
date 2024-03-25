@@ -106,4 +106,12 @@ function format_bitstring(input)
     return input:gsub("....", "%0 "):gsub(" $", "")
 end
 
+function nil_coalesce(a, b)
+    if a ~= nil then
+        return a
+    else
+        return b
+    end
+end
+
 -- End Utils section

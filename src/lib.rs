@@ -445,8 +445,8 @@ pub enum FieldDissectorInfo {
         name: String,
         abbr: String,
         decl: Box<DeclDissectorInfo>,
-        /// Size of the array, or `None` if the array is unbounded
-        size: Option<usize>,
+        /// Number of items in the array, or `None` if the array is unbounded
+        count: Option<usize>,
         size_modifier: Option<String>,
         endian: EndiannessValue,
     },
@@ -456,8 +456,8 @@ pub enum FieldDissectorInfo {
         ftype: FType,
         bit_offset: BitLen,
         item_len: BitLen,
-        /// Size of the array, or `None` if the array is unbounded
-        size: Option<usize>,
+        /// Number of items in the array, or `None` if the array is unbounded
+        count: Option<usize>,
         size_modifier: Option<String>,
         endian: EndiannessValue,
     },
@@ -639,32 +639,30 @@ impl FieldDissectorInfo {
                 name,
                 abbr: _,
                 decl,
-                size,
+                count,
                 size_modifier,
                 endian,
             } => {
-                let size = size.unwrap_or(65536); // Cap at 65536 to avoid infinite loop
+                let count = count.unwrap_or(65536); // Cap at 65536 to avoid infinite loop
                 writedoc!(
                     writer,
                     r#"
                     -- {self:?}
-                    local size = field_values[path .. ".{name}_count"]
-                    if size == nil then
-                        size = {size}
-                    end
-                    local len_limit = field_values[path .. ".{name}_size"]
+                    local count = nil_coalesce(field_values[path .. ".{name}_count"], {count})
+                    local len_limit = field_values[path .. ".{name}_size"]{size_modifier}
                     local initial_i = i
-                    for j=1,size do
+                    for j=1,count do
                         if len_limit ~= nil and i - initial_i >= len_limit then break end
                         if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
-                    "#
+                    "#,
+                    size_modifier = size_modifier.as_deref().unwrap_or_default(),
                 )?;
                 self.write_typedef_dissect(&mut writer.indent(), decl, name, *endian)?;
                 writeln!(writer, r#"end"#)?;
             }
             FieldDissectorInfo::ScalarArray {
                 abbr,
-                size,
+                count,
                 size_modifier,
                 endian,
                 item_len,
@@ -672,18 +670,19 @@ impl FieldDissectorInfo {
                 bit_offset,
                 ..
             } => {
-                let size = size.unwrap_or(65536); // Cap at 65536 to avoid infinite loop
+                let count = count.unwrap_or(65536); // Cap at 65536 to avoid infinite loop
                 writedoc!(
                     writer,
                     r#"
                     -- {self:?}
-                    local size = field_values[path .. ".{abbr}_count"]
-                    if size == nil then
-                        size = {size}
-                    end
-                    for j=1,size do
+                    local count = nil_coalesce(field_values[path .. ".{abbr}_count"], {count})
+                    local len_limit = field_values[path .. ".{abbr}_size"]{size_modifier}
+                    local initial_i = i
+                    for j=1,count do
+                        if len_limit ~= nil and i - initial_i >= len_limit then break end
                         if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
-                    "#
+                    "#,
+                    size_modifier = size_modifier.as_deref().unwrap_or_default(),
                 )?;
                 self.write_scalar_dissect(
                     &mut writer.indent(),
@@ -872,12 +871,12 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 // Actual checksum field is a TypeDef.
                 None
             }
-            FieldDesc::Padding { size } => Some(FieldDissectorInfo::Scalar {
+            FieldDesc::Padding { size: byte_size } => Some(FieldDissectorInfo::Scalar {
                 display_name: "Padding".into(),
                 abbr: "padding".into(),
                 bit_offset: *bit_offset,
                 ftype: FType(None),
-                len: RuntimeLenInfo::fixed(BitLen(size * 8)),
+                len: RuntimeLenInfo::fixed(BitLen(*byte_size)),
                 endian: ctx.endian(),
                 validate_expr: Some(r#"value == string.rep("\000", #value)"#.to_string()),
             }),
@@ -1010,13 +1009,13 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         .to_dissector_info(ctx),
                     ),
                     size_modifier: size_modifier.clone(),
-                    size: *size,
+                    count: *size,
                     endian: ctx.endian(),
                 }),
                 (Some(width), None) => Some(FieldDissectorInfo::ScalarArray {
                     display_name: id.clone(),
                     abbr: id.clone(),
-                    size: *size,
+                    count: *size,
                     size_modifier: size_modifier.clone(),
                     endian: ctx.endian(),
                     ftype: FType(Some(BitLen(*width))),

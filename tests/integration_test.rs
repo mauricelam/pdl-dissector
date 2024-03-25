@@ -97,7 +97,10 @@ fn golden_test() -> anyhow::Result<()> {
             vec![
                 "type: Size_Parent (7)",
                 "11.. .... = Size(Payload): 3",
-                &format!("..00 0000 0100 0000 1000 0000 11.. .... = Payload: {}", 0x010203),
+                &format!(
+                    "..00 0000 0100 0000 1000 0000 11.. .... = Payload: {}",
+                    0x010203
+                ),
             ],
             vec![
                 "type: Size_Array (8)",
@@ -106,9 +109,13 @@ fn golden_test() -> anyhow::Result<()> {
                 "additions: Alcoholic: Rum (11)",
                 "additions: Custom (24)",
             ],
+            vec!["type: InheritanceWithoutConstraint (9)", "field: 136",],
             vec![
-                "type: InheritanceWithoutConstraint (9)",
-                "field: 136",
+                "type: PayloadWithSizeModifier (10)",
+                "Size(additions): 1",
+                "additions: NonAlcoholic: Cream (1)",
+                "additions: Alcoholic: Whisky (10)",
+                "additions: Custom (20)",
             ],
         ],
         top_levels

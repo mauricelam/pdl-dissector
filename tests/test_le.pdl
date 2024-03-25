@@ -11,6 +11,7 @@ enum PacketType: 8 {
   Size_Parent = 7,
   Size_Array = 8,
   InheritanceWithoutConstraint = 9,
+  PayloadWithSizeModifier = 10,
 }
 
 // A top level packet
@@ -91,7 +92,6 @@ packet Array_Brew: TopLevel(type = Array) {
    pots: 8[2],
    additions: Enum_CoffeeAddition[2],
    extra_additions: Enum_CoffeeAddition[],
-   // TODO: Add test for size modifier
 }
 
 // Example 6: Constrained Group
@@ -136,3 +136,18 @@ packet AbstractParent: TopLevel(type = InheritanceWithoutConstraint) {
 packet ChildWithoutConstraints: AbstractParent {
   field: 8
 }
+
+// Example 10: Payload with size modifier
+
+packet PayloadWithSizeModifier: TopLevel(type = PayloadWithSizeModifier) {
+  _size_(additions): 8,
+  additions: Enum_CoffeeAddition[+2],
+}
+
+// Example 11: Fixed field (with verification)
+
+// Example 12: Padding
+
+// Example 13: Reserved
+
+// Example 14: Optional

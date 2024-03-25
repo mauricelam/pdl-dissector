@@ -106,6 +106,14 @@ function format_bitstring(input)
     return input:gsub("....", "%0 "):gsub(" $", "")
 end
 
+function nil_coalesce(a, b)
+    if a ~= nil then
+        return a
+    else
+        return b
+    end
+end
+
 -- End Utils section
 function PcapHeader_protocol_fields(fields, path)
     fields[path .. "._fixed_"] = AlignedProtoField:new({
@@ -203,6 +211,9 @@ function PcapHeader_dissect(buffer, pinfo, tree, fields, path)
     i = i + field_len
     return i
 end
+function PcapHeader_match_constraints(field_values, path)
+    return true
+end
 function PcapRecord_protocol_fields(fields, path)
     fields[path .. ".ts_sec"] = AlignedProtoField:new({
         name = "ts_sec",
@@ -270,6 +281,9 @@ function PcapRecord_dissect(buffer, pinfo, tree, fields, path)
 
     i = i + field_len
     return i
+end
+function PcapRecord_match_constraints(field_values, path)
+    return true
 end
 function PcapFile_protocol_fields(fields, path)
     fields[path .. "._fixed_"] = AlignedProtoField:new({
@@ -345,7 +359,7 @@ function PcapFile_protocol_fields(fields, path)
         bitlen = nil
     })
 end
--- Sequence { name: "PcapFile", fields: [Typedef { name: "header", abbr: "header", decl: Sequence { name: "PcapHeader", fields: [Scalar { display_name: "Fixed value", abbr: "_fixed_", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: Some("value == 2712847316") }, Scalar { display_name: "version_major", abbr: "version_major", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "version_minor", abbr: "version_minor", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "thiszone", abbr: "thiszone", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "sigfigs", abbr: "sigfigs", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "snaplen", abbr: "snaplen", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "network", abbr: "network", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [] }, endian: LittleEndian }, TypedefArray { name: "records", abbr: "records", decl: Sequence { name: "PcapRecord", fields: [Scalar { display_name: "ts_sec", abbr: "ts_sec", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "ts_usec", abbr: "ts_usec", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "Size(Payload)", abbr: "_payload__size", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "orig_len", abbr: "orig_len", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Payload { display_name: "Payload", abbr: "_payload_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_payload__size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: [] }], children: [], constraints: [] }, size: None, size_modifier: None, endian: LittleEndian }], children: [], constraints: [] }
+-- Sequence { name: "PcapFile", fields: [Typedef { name: "header", abbr: "header", decl: Sequence { name: "PcapHeader", fields: [Scalar { display_name: "Fixed value", abbr: "_fixed_", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: Some("value == 2712847316") }, Scalar { display_name: "version_major", abbr: "version_major", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "version_minor", abbr: "version_minor", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "thiszone", abbr: "thiszone", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "sigfigs", abbr: "sigfigs", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "snaplen", abbr: "snaplen", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "network", abbr: "network", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [] }, endian: LittleEndian }, TypedefArray { name: "records", abbr: "records", decl: Sequence { name: "PcapRecord", fields: [Scalar { display_name: "ts_sec", abbr: "ts_sec", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "ts_usec", abbr: "ts_usec", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "Size(Payload)", abbr: "_payload__size", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "orig_len", abbr: "orig_len", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Payload { display_name: "Payload", abbr: "_payload_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_payload__size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: [] }], children: [], constraints: [] }, count: None, size_modifier: None, endian: LittleEndian }], children: [], constraints: [] }
 function PcapFile_dissect(buffer, pinfo, tree, fields, path)
     local i = 0
     local field_values = {}
@@ -355,17 +369,14 @@ function PcapFile_dissect(buffer, pinfo, tree, fields, path)
     local dissected_len = PcapHeader_dissect(buffer(i, field_len), pinfo, subtree, fields, path)
     subtree:set_len(dissected_len)
     i = i + dissected_len
-    -- TypedefArray { name: "records", abbr: "records", decl: Sequence { name: "PcapRecord", fields: [Scalar { display_name: "ts_sec", abbr: "ts_sec", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "ts_usec", abbr: "ts_usec", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "Size(Payload)", abbr: "_payload__size", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "orig_len", abbr: "orig_len", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Payload { display_name: "Payload", abbr: "_payload_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_payload__size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: [] }], children: [], constraints: [] }, size: None, size_modifier: None, endian: LittleEndian }
-    local size = field_values[path .. ".records_count"]
-    if size == nil then
-        size = 65536
-    end
+    -- TypedefArray { name: "records", abbr: "records", decl: Sequence { name: "PcapRecord", fields: [Scalar { display_name: "ts_sec", abbr: "ts_sec", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "ts_usec", abbr: "ts_usec", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "Size(Payload)", abbr: "_payload__size", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "orig_len", abbr: "orig_len", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Payload { display_name: "Payload", abbr: "_payload_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_payload__size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: [] }], children: [], constraints: [] }, count: None, size_modifier: None, endian: LittleEndian }
+    local count = nil_coalesce(field_values[path .. ".records_count"], 65536)
     local len_limit = field_values[path .. ".records_size"]
     local initial_i = i
-    for j=1,size do
+    for j=1,count do
         if len_limit ~= nil and i - initial_i >= len_limit then break end
         if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
-        -- TypedefArray { name: "records", abbr: "records", decl: Sequence { name: "PcapRecord", fields: [Scalar { display_name: "ts_sec", abbr: "ts_sec", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "ts_usec", abbr: "ts_usec", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "Size(Payload)", abbr: "_payload__size", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "orig_len", abbr: "orig_len", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Payload { display_name: "Payload", abbr: "_payload_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_payload__size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: [] }], children: [], constraints: [] }, size: None, size_modifier: None, endian: LittleEndian }
+        -- TypedefArray { name: "records", abbr: "records", decl: Sequence { name: "PcapRecord", fields: [Scalar { display_name: "ts_sec", abbr: "ts_sec", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "ts_usec", abbr: "ts_usec", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "Size(Payload)", abbr: "_payload__size", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "orig_len", abbr: "orig_len", bit_offset: BitLen(0), ftype: FType(Some(BitLen(32))), len: Bounded { referenced_fields: [], constant_factor: BitLen(32) }, endian: LittleEndian, validate_expr: None }, Payload { display_name: "Payload", abbr: "_payload_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_payload__size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: [] }], children: [], constraints: [] }, count: None, size_modifier: None, endian: LittleEndian }
         local field_len = enforce_len_limit(sum_or_nil(128 / 8, field_values[path .. "._payload__size"]), buffer(i):len(), tree)
         local subtree = tree:add(buffer(i, field_len), "records")
         local dissected_len = PcapRecord_dissect(buffer(i, field_len), pinfo, subtree, fields, path)
@@ -373,6 +384,9 @@ function PcapFile_dissect(buffer, pinfo, tree, fields, path)
         i = i + dissected_len
     end
     return i
+end
+function PcapFile_match_constraints(field_values, path)
+    return true
 end
 -- Protocol definition for "PcapFile"
 PcapFile_protocol = Proto("PcapFile",  "PcapFile")
