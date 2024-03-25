@@ -83,21 +83,11 @@ impl DeclDissectorInfo {
                 values,
                 len: _,
             } => {
-                writeln!(writer, r#"local {name}_enum = {{}}"#)?;
-                writeln!(writer, r#"local {name}_enum_range = {{}}"#)?;
-                writeln!(writer, r#"local {name}_enum_matcher = {{}}"#)?;
+                writeln!(writer, r#"local {name}_enum = ProtoEnum:new()"#)?;
                 for tag in values {
                     match tag {
                         Tag::Value(TagValue { id, loc: _, value }) => {
-                            writeln!(writer, r#"{name}_enum[{value}] = "{id}""#)?;
-                            writeln!(
-                                writer,
-                                r#"table.insert({name}_enum_range, {{{value}, {value}, "{id}"}})"#
-                            )?;
-                            writeln!(
-                                writer,
-                                r#"{name}_enum_matcher["{id}"] = function(v) return v == {value} end"#
-                            )?;
+                            writeln!(writer, r#"{name}_enum:define("{id}", {value})"#)?;
                         }
                         Tag::Range(TagRange {
                             id: range_id,
@@ -106,52 +96,20 @@ impl DeclDissectorInfo {
                             tags,
                         }) => {
                             for TagValue { id, loc: _, value } in tags {
-                                writeln!(writer, r#"{name}_enum[{value}] = "{range_id}: {id}""#)?;
                                 writeln!(
                                     writer,
-                                    r#"table.insert({name}_enum_range, {{{value}, {value}, "{range_id}: {id}"}})"#
-                                )?;
-                                writeln!(
-                                    writer,
-                                    r#"{name}_enum_matcher["{id}"] = function(v) return v == {value} end"#
+                                    r#"{name}_enum:define("{range_id}: {id}", {value})"#
                                 )?;
                             }
                             let range_start = range.start();
                             let range_end = range.end();
                             writeln!(
                                 writer,
-                                r#"{name}_enum_matcher["{range_id}"] = function(v) return {range_start} <= v and v <= {range_end} end"#
-                            )?;
-                            writeln!(
-                                writer,
-                                r#"table.insert({name}_enum_range, {{{range_start}, {range_end}, "{range_id}"}})"#
+                                r#"{name}_enum:define("{range_id}", {{{range_start}, {range_end}}})"#
                             )?;
                         }
                         Tag::Other(TagOther { id, loc: _ }) => {
-                            writeln!(
-                                writer,
-                                r#"setmetatable({name}_enum, {{ __index = function () return "{id}" end }})"#
-                            )?;
-                            writeln!(
-                                writer,
-                                // 2^1024 ought to be big enough for anybody
-                                r#"table.insert({name}_enum_range, {{0, 2^1024, "{id}"}})"#
-                            )?;
-                            writedoc!(
-                                writer,
-                                r#"
-                                {name}_enum_matcher["{id}"] = function(v)
-                                    for k,matcher in pairs({name}_enum_matcher) do
-                                        if k ~= "{id}" then
-                                            if matcher(v) then
-                                                return false
-                                            end
-                                        end
-                                    end
-                                    return true
-                                end
-                                "#
-                            )?;
+                            writeln!(writer, r#"{name}_enum:define("{id}", nil)"#)?;
                         }
                     }
                 }
@@ -387,7 +345,7 @@ impl ConstraintDissectorInfo {
                 enum_value,
             } => {
                 format!(
-                    r#"{enum_type}_enum_matcher["{enum_value}"](field_values[path .. ".{field}"])"#
+                    r#"{enum_type}_enum:match("{enum_value}", field_values[path .. ".{field}"])"#
                 )
             }
             ConstraintDissectorInfo::ValueMatch { field, value } => {
@@ -566,7 +524,7 @@ impl FieldDissectorInfo {
                             name = "{name}",
                             abbr = "{abbr}",
                             ftype = {},
-                            valuestring = {type_name}_enum_range,
+                            valuestring = {type_name}_enum.matchers,
                             base = base.RANGE_STRING
                         }})
                         "#,
@@ -815,7 +773,7 @@ impl FieldDissectorInfo {
                     -- {self:?}
                     local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
                     field_values[path .. ".{name}"] = buffer(i, field_len):{buffer_value_function}
-                    if {type_name}_enum[field_values[path .. ".{name}"]] == nil then
+                    if {type_name}_enum.by_value[field_values[path .. ".{name}"]] == nil then
                         tree:add_expert_info(PI_MALFORMED, PI_WARN, "Unknown enum value: " .. field_values[path .. ".{name}"])
                     end
                     if field_len ~= 0 then
@@ -960,7 +918,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 let ftype = FType::from(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
                     display_name: "Fixed value".into(),
-                    abbr: "_fixed_".into(),
+                    abbr: format!("_fixed_{}_{}", self.loc.start.line, self.loc.start.column),
                     ftype,
                     bit_offset: *bit_offset,
                     len: RuntimeLenInfo::fixed(BitLen(*width)),
@@ -973,12 +931,12 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 let ftype = FType::from(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
                     display_name: format!("Fixed value: {tag_id}"),
-                    abbr: "_fixed_".into(),
+                    abbr: format!("_fixed_{}_{}", self.loc.start.line, self.loc.start.column),
                     ftype,
                     bit_offset: *bit_offset,
                     len: referenced_enum.decl_len(),
                     endian: ctx.endian(),
-                    validate_expr: Some(format!("value == {tag_id}")),
+                    validate_expr: Some(format!(r#"{enum_id}_enum:match("{tag_id}", value)"#)),
                 })
             }
             FieldDesc::Reserved { width } => Some(FieldDissectorInfo::Scalar {

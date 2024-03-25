@@ -73,7 +73,7 @@ function UnalignedProtoField:new(o)
         abbr = nil,
         ftype = nil,
         bitoffset = nil,
-        bitlen = nil, -- optional
+        bitlen = nil -- optional
     }
     o.field = ProtoField.new(o.name, o.abbr, ftypes.BYTES)
     setmetatable(o, self)
@@ -82,22 +82,57 @@ function UnalignedProtoField:new(o)
 end
 -- Adds dissection info into `tree`, and returns (value, bit_length)
 function UnalignedProtoField:dissect(tree, buffer, runtime_len)
-    local bitlen = self.bitlen
-    if bitlen == nil then
-        bitlen = runtime_len * 8
-    end
+    local bitlen = nil_coalesce(self.bitlen, runtime_len * 8)
     local numbytes = math.ceil((bitlen + self.bitoffset) / 8)
     local buf = buffer(0, numbytes)
     local value = buf:bitfield(self.bitoffset, bitlen)
     local label = string.rep(".", self.bitoffset) -- First add `offset` number of dots to represent insignificant bits
-    for i=self.bitoffset,self.bitoffset + bitlen-1 do
-        label = label  .. buf:bitfield(i, 1) -- Then add the binary value
+    for i = self.bitoffset, self.bitoffset + bitlen - 1 do
+        label = label .. buf:bitfield(i, 1) -- Then add the binary value
     end
     -- Then add the remaining insignificant bits as dots
     label = label .. string.rep(".", numbytes * 8 - bitlen - self.bitoffset)
     label = format_bitstring(label) .. " = " .. self.name .. ": " .. value -- Print out the string label
     tree:add(buf, self.field, value, label):set_text(label)
     return value, bitlen
+end
+
+ProtoEnum = {}
+function ProtoEnum:new()
+    local o = {
+        by_value = {},
+        matchers = {}
+    }
+    setmetatable(o, self)
+    self.__index = self
+    return o
+end
+
+-- name: string
+-- value: number | {min, max} (Range) | nil (Remaining)
+function ProtoEnum:define(name, value)
+    if value == nil then
+        setmetatable(self.by_value, {
+            __index = function()
+                return name
+            end
+        })
+        table.insert(self.matchers, {0, 2 ^ 1024, name})
+    elseif type(value) == "table" then
+        table.insert(self.matchers, {value[1], value[2], name})
+    else
+        self.by_value[value] = name
+        table.insert(self.matchers, {value, value, name})
+    end
+end
+
+function ProtoEnum:match(enum_name, value)
+    for k,matcher in pairs(self.matchers) do
+        if matcher[1] <= value and value <= matcher[2] then
+            return matcher[3] == enum_name
+        end
+    end
+    return false
 end
 
 -- Add a space every 4 characters in the string
@@ -115,48 +150,25 @@ function nil_coalesce(a, b)
 end
 
 -- End Utils section
-local PacketType_enum = {}
-local PacketType_enum_range = {}
-local PacketType_enum_matcher = {}
-PacketType_enum[0] = "Simple"
-table.insert(PacketType_enum_range, {0, 0, "Simple"})
-PacketType_enum_matcher["Simple"] = function(v) return v == 0 end
-PacketType_enum[1] = "Enum"
-table.insert(PacketType_enum_range, {1, 1, "Enum"})
-PacketType_enum_matcher["Enum"] = function(v) return v == 1 end
-PacketType_enum[2] = "Group"
-table.insert(PacketType_enum_range, {2, 2, "Group"})
-PacketType_enum_matcher["Group"] = function(v) return v == 2 end
-PacketType_enum[3] = "Unaligned"
-table.insert(PacketType_enum_range, {3, 3, "Unaligned"})
-PacketType_enum_matcher["Unaligned"] = function(v) return v == 3 end
-PacketType_enum[4] = "Checksum"
-table.insert(PacketType_enum_range, {4, 4, "Checksum"})
-PacketType_enum_matcher["Checksum"] = function(v) return v == 4 end
-PacketType_enum[5] = "Array"
-table.insert(PacketType_enum_range, {5, 5, "Array"})
-PacketType_enum_matcher["Array"] = function(v) return v == 5 end
-PacketType_enum[6] = "GroupConstraint"
-table.insert(PacketType_enum_range, {6, 6, "GroupConstraint"})
-PacketType_enum_matcher["GroupConstraint"] = function(v) return v == 6 end
-PacketType_enum[7] = "Size_Parent"
-table.insert(PacketType_enum_range, {7, 7, "Size_Parent"})
-PacketType_enum_matcher["Size_Parent"] = function(v) return v == 7 end
-PacketType_enum[8] = "Size_Array"
-table.insert(PacketType_enum_range, {8, 8, "Size_Array"})
-PacketType_enum_matcher["Size_Array"] = function(v) return v == 8 end
-PacketType_enum[9] = "InheritanceWithoutConstraint"
-table.insert(PacketType_enum_range, {9, 9, "InheritanceWithoutConstraint"})
-PacketType_enum_matcher["InheritanceWithoutConstraint"] = function(v) return v == 9 end
-PacketType_enum[10] = "PayloadWithSizeModifier"
-table.insert(PacketType_enum_range, {10, 10, "PayloadWithSizeModifier"})
-PacketType_enum_matcher["PayloadWithSizeModifier"] = function(v) return v == 10 end
+local PacketType_enum = ProtoEnum:new()
+PacketType_enum:define("Simple", 0)
+PacketType_enum:define("Enum", 1)
+PacketType_enum:define("Group", 2)
+PacketType_enum:define("Unaligned", 3)
+PacketType_enum:define("Checksum", 4)
+PacketType_enum:define("Array", 5)
+PacketType_enum:define("GroupConstraint", 6)
+PacketType_enum:define("Size_Parent", 7)
+PacketType_enum:define("Size_Array", 8)
+PacketType_enum:define("InheritanceWithoutConstraint", 9)
+PacketType_enum:define("PayloadWithSizeModifier", 10)
+PacketType_enum:define("Fixed", 11)
 function TopLevel_protocol_fields(fields, path)
     fields[path .. ".type"] = AlignedProtoField:new({
         name = "type",
         abbr = "type",
         ftype = ftypes.UINT8,
-        valuestring = PacketType_enum_range,
+        valuestring = PacketType_enum.matchers,
         base = base.RANGE_STRING
     })
     fields[path .. "._body_"] = AlignedProtoField:new({
@@ -176,22 +188,23 @@ function TopLevel_protocol_fields(fields, path)
     Size_Brew_protocol_fields(fields, path .. ".Size_Brew")
     AbstractParent_protocol_fields(fields, path .. ".AbstractParent")
     PayloadWithSizeModifier_protocol_fields(fields, path .. ".PayloadWithSizeModifier")
+    Fixed_Teapot_protocol_fields(fields, path .. ".Fixed_Teapot")
 end
--- Sequence { name: "TopLevel", fields: [Typedef { name: "type", abbr: "type", decl: Enum { name: "PacketType", values: [Value(TagValue { id: "Simple", loc: SourceRange { .. }, value: 0 }), Value(TagValue { id: "Enum", loc: SourceRange { .. }, value: 1 }), Value(TagValue { id: "Group", loc: SourceRange { .. }, value: 2 }), Value(TagValue { id: "Unaligned", loc: SourceRange { .. }, value: 3 }), Value(TagValue { id: "Checksum", loc: SourceRange { .. }, value: 4 }), Value(TagValue { id: "Array", loc: SourceRange { .. }, value: 5 }), Value(TagValue { id: "GroupConstraint", loc: SourceRange { .. }, value: 6 }), Value(TagValue { id: "Size_Parent", loc: SourceRange { .. }, value: 7 }), Value(TagValue { id: "Size_Array", loc: SourceRange { .. }, value: 8 }), Value(TagValue { id: "InheritanceWithoutConstraint", loc: SourceRange { .. }, value: 9 }), Value(TagValue { id: "PayloadWithSizeModifier", loc: SourceRange { .. }, value: 10 })], len: BitLen(8) }, endian: LittleEndian }, Payload { display_name: "Body", abbr: "_body_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_body__size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: ["SimplePacket", "EnumPacket", "Group_AskBrewHistory", "UnalignedPacket", "ChecksumPacket", "Array_Brew", "GroupConstraint_Packet", "Size_Parent", "Size_Brew", "AbstractParent", "PayloadWithSizeModifier"] }], children: [Sequence { name: "SimplePacket", fields: [Scalar { display_name: "scalar_value", abbr: "scalar_value", bit_offset: BitLen(0), ftype: FType(Some(BitLen(64))), len: Bounded { referenced_fields: [], constant_factor: BitLen(64) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Simple" }] }, Sequence { name: "EnumPacket", fields: [Typedef { name: "addition", abbr: "addition", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Enum" }] }, Sequence { name: "Group_AskBrewHistory", fields: [Scalar { display_name: "pot", abbr: "pot", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "offset", abbr: "offset", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "limit", abbr: "limit", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Group" }] }, Sequence { name: "UnalignedPacket", fields: [Scalar { display_name: "a", abbr: "a", bit_offset: BitLen(0), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "b", abbr: "b", bit_offset: BitLen(3), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "c", abbr: "c", bit_offset: BitLen(3), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "d", abbr: "d", bit_offset: BitLen(6), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "e", abbr: "e", bit_offset: BitLen(1), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Unaligned" }] }, Sequence { name: "ChecksumPacket", fields: [Scalar { display_name: "a", abbr: "a", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "b", abbr: "b", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: None }, Typedef { name: "crc", abbr: "crc", decl: Checksum { name: "CRC16", len: BitLen(16) }, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Checksum" }] }, Sequence { name: "Array_Brew", fields: [ScalarArray { display_name: "pots", abbr: "pots", ftype: FType(Some(BitLen(8))), bit_offset: BitLen(0), item_len: BitLen(8), count: Some(2), size_modifier: None, endian: LittleEndian }, TypedefArray { name: "additions", abbr: "additions", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, count: Some(2), size_modifier: None, endian: LittleEndian }, TypedefArray { name: "extra_additions", abbr: "extra_additions", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, count: None, size_modifier: None, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Array" }] }, Sequence { name: "GroupConstraint_Packet", fields: [Typedef { name: "s", abbr: "s", decl: Sequence { name: "GroupConstraint_Struct", fields: [Scalar { display_name: "Fixed value", abbr: "_fixed_", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: Some("value == 42") }], children: [], constraints: [] }, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "GroupConstraint" }] }, Sequence { name: "Size_Parent", fields: [Scalar { display_name: "Size(Payload)", abbr: "_payload__size", bit_offset: BitLen(0), ftype: FType(Some(BitLen(2))), len: Bounded { referenced_fields: [], constant_factor: BitLen(2) }, endian: LittleEndian, validate_expr: None }, Payload { display_name: "Payload", abbr: "_payload_", bit_offset: BitLen(2), ftype: FType(None), len: Bounded { referenced_fields: ["_payload__size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: [] }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Size_Parent" }] }, Sequence { name: "Size_Brew", fields: [Scalar { display_name: "pot", abbr: "pot", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "Size(additions)", abbr: "additions_size", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, TypedefArray { name: "additions", abbr: "additions", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, count: None, size_modifier: None, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Size_Array" }] }, Sequence { name: "AbstractParent", fields: [Payload { display_name: "Body", abbr: "_body_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_body__size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: ["ChildWithoutConstraints"] }], children: [Sequence { name: "ChildWithoutConstraints", fields: [Scalar { display_name: "field", abbr: "field", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [] }], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "InheritanceWithoutConstraint" }] }, Sequence { name: "PayloadWithSizeModifier", fields: [Scalar { display_name: "Size(additions)", abbr: "additions_size", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, TypedefArray { name: "additions", abbr: "additions", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, count: None, size_modifier: Some("+2"), endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "PayloadWithSizeModifier" }] }], constraints: [] }
+-- Sequence { name: "TopLevel", fields: [Typedef { name: "type", abbr: "type", decl: Enum { name: "PacketType", values: [Value(TagValue { id: "Simple", loc: SourceRange { .. }, value: 0 }), Value(TagValue { id: "Enum", loc: SourceRange { .. }, value: 1 }), Value(TagValue { id: "Group", loc: SourceRange { .. }, value: 2 }), Value(TagValue { id: "Unaligned", loc: SourceRange { .. }, value: 3 }), Value(TagValue { id: "Checksum", loc: SourceRange { .. }, value: 4 }), Value(TagValue { id: "Array", loc: SourceRange { .. }, value: 5 }), Value(TagValue { id: "GroupConstraint", loc: SourceRange { .. }, value: 6 }), Value(TagValue { id: "Size_Parent", loc: SourceRange { .. }, value: 7 }), Value(TagValue { id: "Size_Array", loc: SourceRange { .. }, value: 8 }), Value(TagValue { id: "InheritanceWithoutConstraint", loc: SourceRange { .. }, value: 9 }), Value(TagValue { id: "PayloadWithSizeModifier", loc: SourceRange { .. }, value: 10 }), Value(TagValue { id: "Fixed", loc: SourceRange { .. }, value: 11 })], len: BitLen(8) }, endian: LittleEndian }, Payload { display_name: "Body", abbr: "_body_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_body__size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: ["SimplePacket", "EnumPacket", "Group_AskBrewHistory", "UnalignedPacket", "ChecksumPacket", "Array_Brew", "GroupConstraint_Packet", "Size_Parent", "Size_Brew", "AbstractParent", "PayloadWithSizeModifier", "Fixed_Teapot"] }], children: [Sequence { name: "SimplePacket", fields: [Scalar { display_name: "scalar_value", abbr: "scalar_value", bit_offset: BitLen(0), ftype: FType(Some(BitLen(64))), len: Bounded { referenced_fields: [], constant_factor: BitLen(64) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Simple" }] }, Sequence { name: "EnumPacket", fields: [Typedef { name: "addition", abbr: "addition", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Enum" }] }, Sequence { name: "Group_AskBrewHistory", fields: [Scalar { display_name: "pot", abbr: "pot", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "offset", abbr: "offset", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "limit", abbr: "limit", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Group" }] }, Sequence { name: "UnalignedPacket", fields: [Scalar { display_name: "a", abbr: "a", bit_offset: BitLen(0), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "b", abbr: "b", bit_offset: BitLen(3), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "c", abbr: "c", bit_offset: BitLen(3), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "d", abbr: "d", bit_offset: BitLen(6), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "e", abbr: "e", bit_offset: BitLen(1), ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Unaligned" }] }, Sequence { name: "ChecksumPacket", fields: [Scalar { display_name: "a", abbr: "a", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "b", abbr: "b", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: None }, Typedef { name: "crc", abbr: "crc", decl: Checksum { name: "CRC16", len: BitLen(16) }, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Checksum" }] }, Sequence { name: "Array_Brew", fields: [ScalarArray { display_name: "pots", abbr: "pots", ftype: FType(Some(BitLen(8))), bit_offset: BitLen(0), item_len: BitLen(8), count: Some(2), size_modifier: None, endian: LittleEndian }, TypedefArray { name: "additions", abbr: "additions", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, count: Some(2), size_modifier: None, endian: LittleEndian }, TypedefArray { name: "extra_additions", abbr: "extra_additions", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, count: None, size_modifier: None, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Array" }] }, Sequence { name: "GroupConstraint_Packet", fields: [Typedef { name: "s", abbr: "s", decl: Sequence { name: "GroupConstraint_Struct", fields: [Scalar { display_name: "Fixed value", abbr: "_fixed_99_4", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: Some("value == 42") }], children: [], constraints: [] }, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "GroupConstraint" }] }, Sequence { name: "Size_Parent", fields: [Scalar { display_name: "Size(Payload)", abbr: "_payload__size", bit_offset: BitLen(0), ftype: FType(Some(BitLen(2))), len: Bounded { referenced_fields: [], constant_factor: BitLen(2) }, endian: LittleEndian, validate_expr: None }, Payload { display_name: "Payload", abbr: "_payload_", bit_offset: BitLen(2), ftype: FType(None), len: Bounded { referenced_fields: ["_payload__size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: [] }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Size_Parent" }] }, Sequence { name: "Size_Brew", fields: [Scalar { display_name: "pot", abbr: "pot", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, Scalar { display_name: "Size(additions)", abbr: "additions_size", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, TypedefArray { name: "additions", abbr: "additions", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, count: None, size_modifier: None, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Size_Array" }] }, Sequence { name: "AbstractParent", fields: [Payload { display_name: "Body", abbr: "_body_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_body__size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: ["ChildWithoutConstraints"] }], children: [Sequence { name: "ChildWithoutConstraints", fields: [Scalar { display_name: "field", abbr: "field", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }], children: [], constraints: [] }], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "InheritanceWithoutConstraint" }] }, Sequence { name: "PayloadWithSizeModifier", fields: [Scalar { display_name: "Size(additions)", abbr: "additions_size", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: None }, TypedefArray { name: "additions", abbr: "additions", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, count: None, size_modifier: Some("+2"), endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "PayloadWithSizeModifier" }] }, Sequence { name: "Fixed_Teapot", fields: [Scalar { display_name: "Fixed value", abbr: "_fixed_150_2", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: Some("value == 42") }, Scalar { display_name: "Fixed value: Empty", abbr: "_fixed_151_2", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: Some("Enum_CoffeeAddition_enum:match(\"Empty\", value)") }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Fixed" }] }], constraints: [] }
 function TopLevel_dissect(buffer, pinfo, tree, fields, path)
     local i = 0
     local field_values = {}
-    -- Typedef { name: "type", abbr: "type", decl: Enum { name: "PacketType", values: [Value(TagValue { id: "Simple", loc: SourceRange { .. }, value: 0 }), Value(TagValue { id: "Enum", loc: SourceRange { .. }, value: 1 }), Value(TagValue { id: "Group", loc: SourceRange { .. }, value: 2 }), Value(TagValue { id: "Unaligned", loc: SourceRange { .. }, value: 3 }), Value(TagValue { id: "Checksum", loc: SourceRange { .. }, value: 4 }), Value(TagValue { id: "Array", loc: SourceRange { .. }, value: 5 }), Value(TagValue { id: "GroupConstraint", loc: SourceRange { .. }, value: 6 }), Value(TagValue { id: "Size_Parent", loc: SourceRange { .. }, value: 7 }), Value(TagValue { id: "Size_Array", loc: SourceRange { .. }, value: 8 }), Value(TagValue { id: "InheritanceWithoutConstraint", loc: SourceRange { .. }, value: 9 }), Value(TagValue { id: "PayloadWithSizeModifier", loc: SourceRange { .. }, value: 10 })], len: BitLen(8) }, endian: LittleEndian }
+    -- Typedef { name: "type", abbr: "type", decl: Enum { name: "PacketType", values: [Value(TagValue { id: "Simple", loc: SourceRange { .. }, value: 0 }), Value(TagValue { id: "Enum", loc: SourceRange { .. }, value: 1 }), Value(TagValue { id: "Group", loc: SourceRange { .. }, value: 2 }), Value(TagValue { id: "Unaligned", loc: SourceRange { .. }, value: 3 }), Value(TagValue { id: "Checksum", loc: SourceRange { .. }, value: 4 }), Value(TagValue { id: "Array", loc: SourceRange { .. }, value: 5 }), Value(TagValue { id: "GroupConstraint", loc: SourceRange { .. }, value: 6 }), Value(TagValue { id: "Size_Parent", loc: SourceRange { .. }, value: 7 }), Value(TagValue { id: "Size_Array", loc: SourceRange { .. }, value: 8 }), Value(TagValue { id: "InheritanceWithoutConstraint", loc: SourceRange { .. }, value: 9 }), Value(TagValue { id: "PayloadWithSizeModifier", loc: SourceRange { .. }, value: 10 }), Value(TagValue { id: "Fixed", loc: SourceRange { .. }, value: 11 })], len: BitLen(8) }, endian: LittleEndian }
     local field_len = enforce_len_limit(sum_or_nil(8 / 8), buffer(i):len(), tree)
     field_values[path .. ".type"] = buffer(i, field_len):le_uint()
-    if PacketType_enum[field_values[path .. ".type"]] == nil then
+    if PacketType_enum.by_value[field_values[path .. ".type"]] == nil then
         tree:add_expert_info(PI_MALFORMED, PI_WARN, "Unknown enum value: " .. field_values[path .. ".type"])
     end
     if field_len ~= 0 then
         tree:add_le(fields[path .. ".type"].field, buffer(i, field_len))
         i = i + field_len
     end
-    -- Payload { display_name: "Body", abbr: "_body_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_body__size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: ["SimplePacket", "EnumPacket", "Group_AskBrewHistory", "UnalignedPacket", "ChecksumPacket", "Array_Brew", "GroupConstraint_Packet", "Size_Parent", "Size_Brew", "AbstractParent", "PayloadWithSizeModifier"] }
+    -- Payload { display_name: "Body", abbr: "_body_", bit_offset: BitLen(0), ftype: FType(None), len: Bounded { referenced_fields: ["_body__size"], constant_factor: BitLen(0) }, endian: LittleEndian, children: ["SimplePacket", "EnumPacket", "Group_AskBrewHistory", "UnalignedPacket", "ChecksumPacket", "Array_Brew", "GroupConstraint_Packet", "Size_Parent", "Size_Brew", "AbstractParent", "PayloadWithSizeModifier", "Fixed_Teapot"] }
     local field_len = enforce_len_limit(sum_or_nil(0 / 8, field_values[path .. "._body__size"]), buffer(i):len(), tree)
     if SimplePacket_match_constraints(field_values, path) then
         local dissected_len = SimplePacket_dissect(buffer(i, field_len), pinfo, tree, fields, path .. ".SimplePacket")
@@ -226,6 +239,9 @@ function TopLevel_dissect(buffer, pinfo, tree, fields, path)
     elseif PayloadWithSizeModifier_match_constraints(field_values, path) then
         local dissected_len = PayloadWithSizeModifier_dissect(buffer(i, field_len), pinfo, tree, fields, path .. ".PayloadWithSizeModifier")
         i = i + dissected_len
+    elseif Fixed_Teapot_match_constraints(field_values, path) then
+        local dissected_len = Fixed_Teapot_dissect(buffer(i, field_len), pinfo, tree, fields, path .. ".Fixed_Teapot")
+        i = i + dissected_len
     else
         field_values[path .. "._body_"] = buffer(i, field_len):raw()
         local subtree = tree:add_le(fields[path .. "._body_"].field, buffer(i, field_len))
@@ -258,59 +274,27 @@ function SimplePacket_dissect(buffer, pinfo, tree, fields, path)
     return i
 end
 function SimplePacket_match_constraints(field_values, path)
-    return PacketType_enum_matcher["Simple"](field_values[path .. ".type"])
+    return PacketType_enum:match("Simple", field_values[path .. ".type"])
 end
-local Enum_CoffeeAddition_enum = {}
-local Enum_CoffeeAddition_enum_range = {}
-local Enum_CoffeeAddition_enum_matcher = {}
-Enum_CoffeeAddition_enum[0] = "Empty"
-table.insert(Enum_CoffeeAddition_enum_range, {0, 0, "Empty"})
-Enum_CoffeeAddition_enum_matcher["Empty"] = function(v) return v == 0 end
-Enum_CoffeeAddition_enum[1] = "NonAlcoholic: Cream"
-table.insert(Enum_CoffeeAddition_enum_range, {1, 1, "NonAlcoholic: Cream"})
-Enum_CoffeeAddition_enum_matcher["Cream"] = function(v) return v == 1 end
-Enum_CoffeeAddition_enum[2] = "NonAlcoholic: Vanilla"
-table.insert(Enum_CoffeeAddition_enum_range, {2, 2, "NonAlcoholic: Vanilla"})
-Enum_CoffeeAddition_enum_matcher["Vanilla"] = function(v) return v == 2 end
-Enum_CoffeeAddition_enum[3] = "NonAlcoholic: Chocolate"
-table.insert(Enum_CoffeeAddition_enum_range, {3, 3, "NonAlcoholic: Chocolate"})
-Enum_CoffeeAddition_enum_matcher["Chocolate"] = function(v) return v == 3 end
-Enum_CoffeeAddition_enum_matcher["NonAlcoholic"] = function(v) return 1 <= v and v <= 9 end
-table.insert(Enum_CoffeeAddition_enum_range, {1, 9, "NonAlcoholic"})
-Enum_CoffeeAddition_enum[10] = "Alcoholic: Whisky"
-table.insert(Enum_CoffeeAddition_enum_range, {10, 10, "Alcoholic: Whisky"})
-Enum_CoffeeAddition_enum_matcher["Whisky"] = function(v) return v == 10 end
-Enum_CoffeeAddition_enum[11] = "Alcoholic: Rum"
-table.insert(Enum_CoffeeAddition_enum_range, {11, 11, "Alcoholic: Rum"})
-Enum_CoffeeAddition_enum_matcher["Rum"] = function(v) return v == 11 end
-Enum_CoffeeAddition_enum[12] = "Alcoholic: Kahlua"
-table.insert(Enum_CoffeeAddition_enum_range, {12, 12, "Alcoholic: Kahlua"})
-Enum_CoffeeAddition_enum_matcher["Kahlua"] = function(v) return v == 12 end
-Enum_CoffeeAddition_enum[13] = "Alcoholic: Aquavit"
-table.insert(Enum_CoffeeAddition_enum_range, {13, 13, "Alcoholic: Aquavit"})
-Enum_CoffeeAddition_enum_matcher["Aquavit"] = function(v) return v == 13 end
-Enum_CoffeeAddition_enum_matcher["Alcoholic"] = function(v) return 10 <= v and v <= 19 end
-table.insert(Enum_CoffeeAddition_enum_range, {10, 19, "Alcoholic"})
-Enum_CoffeeAddition_enum_matcher["Custom"] = function(v) return 20 <= v and v <= 29 end
-table.insert(Enum_CoffeeAddition_enum_range, {20, 29, "Custom"})
-setmetatable(Enum_CoffeeAddition_enum, { __index = function () return "Other" end })
-table.insert(Enum_CoffeeAddition_enum_range, {0, 2^1024, "Other"})
-Enum_CoffeeAddition_enum_matcher["Other"] = function(v)
-    for k,matcher in pairs(Enum_CoffeeAddition_enum_matcher) do
-        if k ~= "Other" then
-            if matcher(v) then
-                return false
-            end
-        end
-    end
-    return true
-end
+local Enum_CoffeeAddition_enum = ProtoEnum:new()
+Enum_CoffeeAddition_enum:define("Empty", 0)
+Enum_CoffeeAddition_enum:define("NonAlcoholic: Cream", 1)
+Enum_CoffeeAddition_enum:define("NonAlcoholic: Vanilla", 2)
+Enum_CoffeeAddition_enum:define("NonAlcoholic: Chocolate", 3)
+Enum_CoffeeAddition_enum:define("NonAlcoholic", {1, 9})
+Enum_CoffeeAddition_enum:define("Alcoholic: Whisky", 10)
+Enum_CoffeeAddition_enum:define("Alcoholic: Rum", 11)
+Enum_CoffeeAddition_enum:define("Alcoholic: Kahlua", 12)
+Enum_CoffeeAddition_enum:define("Alcoholic: Aquavit", 13)
+Enum_CoffeeAddition_enum:define("Alcoholic", {10, 19})
+Enum_CoffeeAddition_enum:define("Custom", {20, 29})
+Enum_CoffeeAddition_enum:define("Other", nil)
 function EnumPacket_protocol_fields(fields, path)
     fields[path .. ".addition"] = AlignedProtoField:new({
         name = "addition",
         abbr = "addition",
         ftype = ftypes.UINT8,
-        valuestring = Enum_CoffeeAddition_enum_range,
+        valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING
     })
 end
@@ -321,7 +305,7 @@ function EnumPacket_dissect(buffer, pinfo, tree, fields, path)
     -- Typedef { name: "addition", abbr: "addition", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, endian: LittleEndian }
     local field_len = enforce_len_limit(sum_or_nil(8 / 8), buffer(i):len(), tree)
     field_values[path .. ".addition"] = buffer(i, field_len):le_uint()
-    if Enum_CoffeeAddition_enum[field_values[path .. ".addition"]] == nil then
+    if Enum_CoffeeAddition_enum.by_value[field_values[path .. ".addition"]] == nil then
         tree:add_expert_info(PI_MALFORMED, PI_WARN, "Unknown enum value: " .. field_values[path .. ".addition"])
     end
     if field_len ~= 0 then
@@ -331,7 +315,7 @@ function EnumPacket_dissect(buffer, pinfo, tree, fields, path)
     return i
 end
 function EnumPacket_match_constraints(field_values, path)
-    return PacketType_enum_matcher["Enum"](field_values[path .. ".type"])
+    return PacketType_enum:match("Enum", field_values[path .. ".type"])
 end
 function Group_AskBrewHistory_protocol_fields(fields, path)
     fields[path .. ".pot"] = AlignedProtoField:new({
@@ -378,7 +362,7 @@ function Group_AskBrewHistory_dissect(buffer, pinfo, tree, fields, path)
     return i
 end
 function Group_AskBrewHistory_match_constraints(field_values, path)
-    return PacketType_enum_matcher["Group"](field_values[path .. ".type"])
+    return PacketType_enum:match("Group", field_values[path .. ".type"])
 end
 function UnalignedPacket_protocol_fields(fields, path)
     fields[path .. ".a"] = UnalignedProtoField:new({
@@ -449,7 +433,7 @@ function UnalignedPacket_dissect(buffer, pinfo, tree, fields, path)
     return i
 end
 function UnalignedPacket_match_constraints(field_values, path)
-    return PacketType_enum_matcher["Unaligned"](field_values[path .. ".type"])
+    return PacketType_enum:match("Unaligned", field_values[path .. ".type"])
 end
 function ChecksumPacket_protocol_fields(fields, path)
     fields[path .. ".a"] = AlignedProtoField:new({
@@ -497,7 +481,7 @@ function ChecksumPacket_dissect(buffer, pinfo, tree, fields, path)
     return i
 end
 function ChecksumPacket_match_constraints(field_values, path)
-    return PacketType_enum_matcher["Checksum"](field_values[path .. ".type"])
+    return PacketType_enum:match("Checksum", field_values[path .. ".type"])
 end
 function Array_Brew_protocol_fields(fields, path)
     fields[path .. ".pots"] = AlignedProtoField:new({
@@ -510,14 +494,14 @@ function Array_Brew_protocol_fields(fields, path)
         name = "additions",
         abbr = "additions",
         ftype = ftypes.UINT8,
-        valuestring = Enum_CoffeeAddition_enum_range,
+        valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING
     })
     fields[path .. ".extra_additions"] = AlignedProtoField:new({
         name = "extra_additions",
         abbr = "extra_additions",
         ftype = ftypes.UINT8,
-        valuestring = Enum_CoffeeAddition_enum_range,
+        valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING
     })
 end
@@ -549,7 +533,7 @@ function Array_Brew_dissect(buffer, pinfo, tree, fields, path)
         -- TypedefArray { name: "additions", abbr: "additions", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, count: Some(2), size_modifier: None, endian: LittleEndian }
         local field_len = enforce_len_limit(sum_or_nil(8 / 8), buffer(i):len(), tree)
         field_values[path .. ".additions"] = buffer(i, field_len):le_uint()
-        if Enum_CoffeeAddition_enum[field_values[path .. ".additions"]] == nil then
+        if Enum_CoffeeAddition_enum.by_value[field_values[path .. ".additions"]] == nil then
             tree:add_expert_info(PI_MALFORMED, PI_WARN, "Unknown enum value: " .. field_values[path .. ".additions"])
         end
         if field_len ~= 0 then
@@ -567,7 +551,7 @@ function Array_Brew_dissect(buffer, pinfo, tree, fields, path)
         -- TypedefArray { name: "extra_additions", abbr: "extra_additions", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, count: None, size_modifier: None, endian: LittleEndian }
         local field_len = enforce_len_limit(sum_or_nil(8 / 8), buffer(i):len(), tree)
         field_values[path .. ".extra_additions"] = buffer(i, field_len):le_uint()
-        if Enum_CoffeeAddition_enum[field_values[path .. ".extra_additions"]] == nil then
+        if Enum_CoffeeAddition_enum.by_value[field_values[path .. ".extra_additions"]] == nil then
             tree:add_expert_info(PI_MALFORMED, PI_WARN, "Unknown enum value: " .. field_values[path .. ".extra_additions"])
         end
         if field_len ~= 0 then
@@ -578,25 +562,25 @@ function Array_Brew_dissect(buffer, pinfo, tree, fields, path)
     return i
 end
 function Array_Brew_match_constraints(field_values, path)
-    return PacketType_enum_matcher["Array"](field_values[path .. ".type"])
+    return PacketType_enum:match("Array", field_values[path .. ".type"])
 end
 function GroupConstraint_Struct_protocol_fields(fields, path)
-    fields[path .. "._fixed_"] = AlignedProtoField:new({
+    fields[path .. "._fixed_99_4"] = AlignedProtoField:new({
         name = "Fixed value",
-        abbr = path .. "._fixed_",
+        abbr = path .. "._fixed_99_4",
         ftype = ftypes.UINT16,
         bitlen = 16
     })
 end
--- Sequence { name: "GroupConstraint_Struct", fields: [Scalar { display_name: "Fixed value", abbr: "_fixed_", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: Some("value == 42") }], children: [], constraints: [] }
+-- Sequence { name: "GroupConstraint_Struct", fields: [Scalar { display_name: "Fixed value", abbr: "_fixed_99_4", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: Some("value == 42") }], children: [], constraints: [] }
 function GroupConstraint_Struct_dissect(buffer, pinfo, tree, fields, path)
     local i = 0
     local field_values = {}
-    -- Scalar { display_name: "Fixed value", abbr: "_fixed_", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: Some("value == 42") }
+    -- Scalar { display_name: "Fixed value", abbr: "_fixed_99_4", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: Some("value == 42") }
     local field_len = enforce_len_limit(sum_or_nil(16 / 8), buffer(i):len(), tree)
-    field_values[path .. "._fixed_"] = buffer(i, field_len):le_uint()
-    local subtree = tree:add_le(fields[path .. "._fixed_"].field, buffer(i, field_len))
-    local value = field_values[path .. "._fixed_"]
+    field_values[path .. "._fixed_99_4"] = buffer(i, field_len):le_uint()
+    local subtree = tree:add_le(fields[path .. "._fixed_99_4"].field, buffer(i, field_len))
+    local value = field_values[path .. "._fixed_99_4"]
     if not (value == 42) then
         subtree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected `value == 42` where value=" .. tostring(value))
     end
@@ -608,18 +592,18 @@ function GroupConstraint_Struct_match_constraints(field_values, path)
     return true
 end
 function GroupConstraint_Packet_protocol_fields(fields, path)
-    fields[path .. "._fixed_"] = AlignedProtoField:new({
+    fields[path .. "._fixed_99_4"] = AlignedProtoField:new({
         name = "Fixed value",
-        abbr = path .. "._fixed_",
+        abbr = path .. "._fixed_99_4",
         ftype = ftypes.UINT16,
         bitlen = 16
     })
 end
--- Sequence { name: "GroupConstraint_Packet", fields: [Typedef { name: "s", abbr: "s", decl: Sequence { name: "GroupConstraint_Struct", fields: [Scalar { display_name: "Fixed value", abbr: "_fixed_", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: Some("value == 42") }], children: [], constraints: [] }, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "GroupConstraint" }] }
+-- Sequence { name: "GroupConstraint_Packet", fields: [Typedef { name: "s", abbr: "s", decl: Sequence { name: "GroupConstraint_Struct", fields: [Scalar { display_name: "Fixed value", abbr: "_fixed_99_4", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: Some("value == 42") }], children: [], constraints: [] }, endian: LittleEndian }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "GroupConstraint" }] }
 function GroupConstraint_Packet_dissect(buffer, pinfo, tree, fields, path)
     local i = 0
     local field_values = {}
-    -- Typedef { name: "s", abbr: "s", decl: Sequence { name: "GroupConstraint_Struct", fields: [Scalar { display_name: "Fixed value", abbr: "_fixed_", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: Some("value == 42") }], children: [], constraints: [] }, endian: LittleEndian }
+    -- Typedef { name: "s", abbr: "s", decl: Sequence { name: "GroupConstraint_Struct", fields: [Scalar { display_name: "Fixed value", abbr: "_fixed_99_4", bit_offset: BitLen(0), ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, endian: LittleEndian, validate_expr: Some("value == 42") }], children: [], constraints: [] }, endian: LittleEndian }
     local field_len = enforce_len_limit(sum_or_nil(16 / 8), buffer(i):len(), tree)
     local subtree = tree:add(buffer(i, field_len), "s")
     local dissected_len = GroupConstraint_Struct_dissect(buffer(i, field_len), pinfo, subtree, fields, path)
@@ -628,7 +612,7 @@ function GroupConstraint_Packet_dissect(buffer, pinfo, tree, fields, path)
     return i
 end
 function GroupConstraint_Packet_match_constraints(field_values, path)
-    return PacketType_enum_matcher["GroupConstraint"](field_values[path .. ".type"])
+    return PacketType_enum:match("GroupConstraint", field_values[path .. ".type"])
 end
 function Size_Parent_protocol_fields(fields, path)
     fields[path .. "._payload__size"] = UnalignedProtoField:new({
@@ -663,31 +647,13 @@ function Size_Parent_dissect(buffer, pinfo, tree, fields, path)
     return i
 end
 function Size_Parent_match_constraints(field_values, path)
-    return PacketType_enum_matcher["Size_Parent"](field_values[path .. ".type"])
+    return PacketType_enum:match("Size_Parent", field_values[path .. ".type"])
 end
-local Size_16bitEnum_enum = {}
-local Size_16bitEnum_enum_range = {}
-local Size_16bitEnum_enum_matcher = {}
-Size_16bitEnum_enum[1] = "A"
-table.insert(Size_16bitEnum_enum_range, {1, 1, "A"})
-Size_16bitEnum_enum_matcher["A"] = function(v) return v == 1 end
-Size_16bitEnum_enum[2] = "B"
-table.insert(Size_16bitEnum_enum_range, {2, 2, "B"})
-Size_16bitEnum_enum_matcher["B"] = function(v) return v == 2 end
-Size_16bitEnum_enum_matcher["Custom"] = function(v) return 3 <= v and v <= 5 end
-table.insert(Size_16bitEnum_enum_range, {3, 5, "Custom"})
-setmetatable(Size_16bitEnum_enum, { __index = function () return "Other" end })
-table.insert(Size_16bitEnum_enum_range, {0, 2^1024, "Other"})
-Size_16bitEnum_enum_matcher["Other"] = function(v)
-    for k,matcher in pairs(Size_16bitEnum_enum_matcher) do
-        if k ~= "Other" then
-            if matcher(v) then
-                return false
-            end
-        end
-    end
-    return true
-end
+local Size_16bitEnum_enum = ProtoEnum:new()
+Size_16bitEnum_enum:define("A", 1)
+Size_16bitEnum_enum:define("B", 2)
+Size_16bitEnum_enum:define("Custom", {3, 5})
+Size_16bitEnum_enum:define("Other", nil)
 function Size_Brew_protocol_fields(fields, path)
     fields[path .. ".pot"] = AlignedProtoField:new({
         name = "pot",
@@ -705,7 +671,7 @@ function Size_Brew_protocol_fields(fields, path)
         name = "additions",
         abbr = "additions",
         ftype = ftypes.UINT8,
-        valuestring = Enum_CoffeeAddition_enum_range,
+        valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING
     })
 end
@@ -735,7 +701,7 @@ function Size_Brew_dissect(buffer, pinfo, tree, fields, path)
         -- TypedefArray { name: "additions", abbr: "additions", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, count: None, size_modifier: None, endian: LittleEndian }
         local field_len = enforce_len_limit(sum_or_nil(8 / 8), buffer(i):len(), tree)
         field_values[path .. ".additions"] = buffer(i, field_len):le_uint()
-        if Enum_CoffeeAddition_enum[field_values[path .. ".additions"]] == nil then
+        if Enum_CoffeeAddition_enum.by_value[field_values[path .. ".additions"]] == nil then
             tree:add_expert_info(PI_MALFORMED, PI_WARN, "Unknown enum value: " .. field_values[path .. ".additions"])
         end
         if field_len ~= 0 then
@@ -746,7 +712,7 @@ function Size_Brew_dissect(buffer, pinfo, tree, fields, path)
     return i
 end
 function Size_Brew_match_constraints(field_values, path)
-    return PacketType_enum_matcher["Size_Array"](field_values[path .. ".type"])
+    return PacketType_enum:match("Size_Array", field_values[path .. ".type"])
 end
 function AbstractParent_protocol_fields(fields, path)
     fields[path .. "._body_"] = AlignedProtoField:new({
@@ -775,7 +741,7 @@ function AbstractParent_dissect(buffer, pinfo, tree, fields, path)
     return i
 end
 function AbstractParent_match_constraints(field_values, path)
-    return PacketType_enum_matcher["InheritanceWithoutConstraint"](field_values[path .. ".type"])
+    return PacketType_enum:match("InheritanceWithoutConstraint", field_values[path .. ".type"])
 end
 function ChildWithoutConstraints_protocol_fields(fields, path)
     fields[path .. ".field"] = AlignedProtoField:new({
@@ -811,7 +777,7 @@ function PayloadWithSizeModifier_protocol_fields(fields, path)
         name = "additions",
         abbr = "additions",
         ftype = ftypes.UINT8,
-        valuestring = Enum_CoffeeAddition_enum_range,
+        valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING
     })
 end
@@ -835,7 +801,7 @@ function PayloadWithSizeModifier_dissect(buffer, pinfo, tree, fields, path)
         -- TypedefArray { name: "additions", abbr: "additions", decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, count: None, size_modifier: Some("+2"), endian: LittleEndian }
         local field_len = enforce_len_limit(sum_or_nil(8 / 8), buffer(i):len(), tree)
         field_values[path .. ".additions"] = buffer(i, field_len):le_uint()
-        if Enum_CoffeeAddition_enum[field_values[path .. ".additions"]] == nil then
+        if Enum_CoffeeAddition_enum.by_value[field_values[path .. ".additions"]] == nil then
             tree:add_expert_info(PI_MALFORMED, PI_WARN, "Unknown enum value: " .. field_values[path .. ".additions"])
         end
         if field_len ~= 0 then
@@ -846,7 +812,50 @@ function PayloadWithSizeModifier_dissect(buffer, pinfo, tree, fields, path)
     return i
 end
 function PayloadWithSizeModifier_match_constraints(field_values, path)
-    return PacketType_enum_matcher["PayloadWithSizeModifier"](field_values[path .. ".type"])
+    return PacketType_enum:match("PayloadWithSizeModifier", field_values[path .. ".type"])
+end
+function Fixed_Teapot_protocol_fields(fields, path)
+    fields[path .. "._fixed_150_2"] = AlignedProtoField:new({
+        name = "Fixed value",
+        abbr = path .. "._fixed_150_2",
+        ftype = ftypes.UINT8,
+        bitlen = 8
+    })
+    fields[path .. "._fixed_151_2"] = AlignedProtoField:new({
+        name = "Fixed value: Empty",
+        abbr = path .. "._fixed_151_2",
+        ftype = ftypes.UINT8,
+        bitlen = 8
+    })
+end
+-- Sequence { name: "Fixed_Teapot", fields: [Scalar { display_name: "Fixed value", abbr: "_fixed_150_2", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: Some("value == 42") }, Scalar { display_name: "Fixed value: Empty", abbr: "_fixed_151_2", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: Some("Enum_CoffeeAddition_enum:match(\"Empty\", value)") }], children: [], constraints: [EnumMatch { field: "type", enum_type: "PacketType", enum_value: "Fixed" }] }
+function Fixed_Teapot_dissect(buffer, pinfo, tree, fields, path)
+    local i = 0
+    local field_values = {}
+    -- Scalar { display_name: "Fixed value", abbr: "_fixed_150_2", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: Some("value == 42") }
+    local field_len = enforce_len_limit(sum_or_nil(8 / 8), buffer(i):len(), tree)
+    field_values[path .. "._fixed_150_2"] = buffer(i, field_len):le_uint()
+    local subtree = tree:add_le(fields[path .. "._fixed_150_2"].field, buffer(i, field_len))
+    local value = field_values[path .. "._fixed_150_2"]
+    if not (value == 42) then
+        subtree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected `value == 42` where value=" .. tostring(value))
+    end
+
+    i = i + field_len
+    -- Scalar { display_name: "Fixed value: Empty", abbr: "_fixed_151_2", bit_offset: BitLen(0), ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, endian: LittleEndian, validate_expr: Some("Enum_CoffeeAddition_enum:match(\"Empty\", value)") }
+    local field_len = enforce_len_limit(sum_or_nil(8 / 8), buffer(i):len(), tree)
+    field_values[path .. "._fixed_151_2"] = buffer(i, field_len):le_uint()
+    local subtree = tree:add_le(fields[path .. "._fixed_151_2"].field, buffer(i, field_len))
+    local value = field_values[path .. "._fixed_151_2"]
+    if not (Enum_CoffeeAddition_enum:match("Empty", value)) then
+        subtree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected `Enum_CoffeeAddition_enum:match(\"Empty\", value)` where value=" .. tostring(value))
+    end
+
+    i = i + field_len
+    return i
+end
+function Fixed_Teapot_match_constraints(field_values, path)
+    return PacketType_enum:match("Fixed", field_values[path .. ".type"])
 end
 -- Protocol definition for "TopLevel"
 TopLevel_protocol = Proto("TopLevel",  "TopLevel")

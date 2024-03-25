@@ -117,6 +117,31 @@ fn golden_test() -> anyhow::Result<()> {
                 "additions: Alcoholic: Whisky (10)",
                 "additions: Custom (20)",
             ],
+            vec![
+                "type: Fixed (11)",
+                "Fixed value: 42",
+                "Fixed value: Empty: 0",
+            ],
+            vec![
+                "type: Fixed (11)",
+                "Fixed value: 80",
+                "  Expert Info (Warning/Malformed): Error: Expected `value == 42` where value=80",
+                "    Error: Expected `value == 42` where value=80",
+                "    Message: Error: Expected `value == 42` where value=80",
+                "    Severity level: Warning",
+                "    Group: Malformed",
+                "Fixed value: Empty: 0",
+            ],
+            vec![
+                "type: Fixed (11)",
+                "Fixed value: 42",
+                "Fixed value: Empty: 1",
+                "  Expert Info (Warning/Malformed): Error: Expected `Enum_CoffeeAddition_enum:match(\"Empty\", value)` where value=1",
+                "    Error: Expected `Enum_CoffeeAddition_enum:match(\"Empty\", value)` where value=1",
+                "    Message: Error: Expected `Enum_CoffeeAddition_enum:match(\"Empty\", value)` where value=1",
+                "    Severity level: Warning",
+                "    Group: Malformed",
+            ],
         ],
         top_levels
             .iter()

@@ -73,7 +73,7 @@ function UnalignedProtoField:new(o)
         abbr = nil,
         ftype = nil,
         bitoffset = nil,
-        bitlen = nil, -- optional
+        bitlen = nil -- optional
     }
     o.field = ProtoField.new(o.name, o.abbr, ftypes.BYTES)
     setmetatable(o, self)
@@ -82,22 +82,57 @@ function UnalignedProtoField:new(o)
 end
 -- Adds dissection info into `tree`, and returns (value, bit_length)
 function UnalignedProtoField:dissect(tree, buffer, runtime_len)
-    local bitlen = self.bitlen
-    if bitlen == nil then
-        bitlen = runtime_len * 8
-    end
+    local bitlen = nil_coalesce(self.bitlen, runtime_len * 8)
     local numbytes = math.ceil((bitlen + self.bitoffset) / 8)
     local buf = buffer(0, numbytes)
     local value = buf:bitfield(self.bitoffset, bitlen)
     local label = string.rep(".", self.bitoffset) -- First add `offset` number of dots to represent insignificant bits
-    for i=self.bitoffset,self.bitoffset + bitlen-1 do
-        label = label  .. buf:bitfield(i, 1) -- Then add the binary value
+    for i = self.bitoffset, self.bitoffset + bitlen - 1 do
+        label = label .. buf:bitfield(i, 1) -- Then add the binary value
     end
     -- Then add the remaining insignificant bits as dots
     label = label .. string.rep(".", numbytes * 8 - bitlen - self.bitoffset)
     label = format_bitstring(label) .. " = " .. self.name .. ": " .. value -- Print out the string label
     tree:add(buf, self.field, value, label):set_text(label)
     return value, bitlen
+end
+
+ProtoEnum = {}
+function ProtoEnum:new()
+    local o = {
+        by_value = {},
+        matchers = {}
+    }
+    setmetatable(o, self)
+    self.__index = self
+    return o
+end
+
+-- name: string
+-- value: number | {min, max} (Range) | nil (Remaining)
+function ProtoEnum:define(name, value)
+    if value == nil then
+        setmetatable(self.by_value, {
+            __index = function()
+                return name
+            end
+        })
+        table.insert(self.matchers, {0, 2 ^ 1024, name})
+    elseif type(value) == "table" then
+        table.insert(self.matchers, {value[1], value[2], name})
+    else
+        self.by_value[value] = name
+        table.insert(self.matchers, {value, value, name})
+    end
+end
+
+function ProtoEnum:match(enum_name, value)
+    for k,matcher in pairs(self.matchers) do
+        if matcher[1] <= value and value <= matcher[2] then
+            return matcher[3] == enum_name
+        end
+    end
+    return false
 end
 
 -- Add a space every 4 characters in the string

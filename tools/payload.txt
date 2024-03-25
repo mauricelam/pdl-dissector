@@ -61,3 +61,15 @@ I2019-01-01 00:00:00
 # Extra unrecognized byte: 00
 I2019-01-01 00:00:00
 00000000: 0a 01 01 0a 14 00
+
+# Type = Fixed, fixed field 1 = 42, fixed field 2 = Empty
+I2019-01-01 00:00:00
+00000000: 0b 2a 00
+
+# Type = Fixed, fixed field 1 = 80, fixed field 2 = Empty
+I2019-01-01 00:00:00
+00000000: 0b 50 00
+
+# Type = Fixed, fixed field 1 = 42, fixed field 2 = Cream
+I2019-01-01 00:00:00
+00000000: 0b 2a 01

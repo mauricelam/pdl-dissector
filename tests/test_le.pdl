@@ -12,6 +12,7 @@ enum PacketType: 8 {
   Size_Array = 8,
   InheritanceWithoutConstraint = 9,
   PayloadWithSizeModifier = 10,
+  Fixed = 11,
 }
 
 // A top level packet
@@ -145,6 +146,11 @@ packet PayloadWithSizeModifier: TopLevel(type = PayloadWithSizeModifier) {
 }
 
 // Example 11: Fixed field (with verification)
+
+packet Fixed_Teapot: TopLevel(type = Fixed) {
+  _fixed_ = 42: 8,
+  _fixed_ = Empty: Enum_CoffeeAddition
+}
 
 // Example 12: Padding
 
