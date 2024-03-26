@@ -165,6 +165,10 @@ fn golden_test() -> anyhow::Result<()> {
                 "  Severity level: Warning",
                 "  Group: Malformed",
             ],
+            vec![
+                "type: Reserved (13)",
+                "0000 0001 0000 0010 0000 .... = Reserved: 4128",
+            ],
         ],
         top_levels
             .iter()

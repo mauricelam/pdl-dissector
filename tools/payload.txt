@@ -82,3 +82,7 @@ I2019-01-01 00:00:00
 # Warning: Unexpected end, length shorter than padding
 I2019-01-01 00:00:00
 00000000: 0c 01 14
+
+# Type = Reserved
+I2019-01-01 00:00:00
+00000000: 0d 01 02 03

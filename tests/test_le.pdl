@@ -14,6 +14,7 @@ enum PacketType: 8 {
   PayloadWithSizeModifier = 10,
   Fixed = 11,
   Padding = 12,
+  Reserved = 13,
 }
 
 // A top level packet
@@ -161,5 +162,9 @@ packet Padding_PaddedCoffee: TopLevel(type = Padding) {
 }
 
 // Example 13: Reserved
+
+packet Reserved_DeloreanCoffee: TopLevel(type = Reserved) {
+  _reserved_: 20
+}
 
 // Example 14: Optional

@@ -23,18 +23,24 @@ use utils::{buffer_value_lua_function, lua_if_then_else};
 use crate::len_info::BitLen;
 
 #[derive(Clone, Debug)]
-struct Context<'a> {
+struct FieldContext<'a> {
+    num_fixed: usize,
+    num_reserved: usize,
     scope: &'a Scope<'a, analyzer::ast::Annotation>,
 }
 
-impl Context<'_> {
-    pub fn endian(&self) -> EndiannessValue {
-        self.scope.file.endianness.value
+impl<'a> FieldContext<'a> {
+    pub fn new(scope: &'a Scope<'a, analyzer::ast::Annotation>) -> Self {
+        Self {
+            num_fixed: 0,
+            num_reserved: 0,
+            scope,
+        }
     }
 }
 
 trait DeclExt {
-    fn to_dissector_info(&self, ctx: &Context) -> DeclDissectorInfo;
+    fn to_dissector_info(&self, scope: &Scope) -> DeclDissectorInfo;
 }
 
 #[derive(Debug, Clone)]
@@ -225,7 +231,7 @@ impl DeclDissectorInfo {
 }
 
 impl DeclExt for Decl<analyzer::ast::Annotation> {
-    fn to_dissector_info(&self, ctx: &Context) -> DeclDissectorInfo {
+    fn to_dissector_info(&self, scope: &Scope) -> DeclDissectorInfo {
         debug!("Write decl: {self:?}");
         match &self.desc {
             DeclDesc::Enum { id, tags, width } => {
@@ -251,7 +257,7 @@ impl DeclExt for Decl<analyzer::ast::Annotation> {
                         let mut field_dissector_infos = vec![];
                         for field in self.fields() {
                             if let Some(dissector_info) = field.to_dissector_info(
-                                ctx,
+                                &mut FieldContext::new(scope),
                                 &bit_offset,
                                 self,
                                 field_dissector_infos.last_mut(),
@@ -263,14 +269,13 @@ impl DeclExt for Decl<analyzer::ast::Annotation> {
                         }
                         field_dissector_infos
                     },
-                    children: ctx
-                        .scope
+                    children: scope
                         .iter_children(self)
-                        .map(|child| child.to_dissector_info(ctx)) // TODO: the prefix will be wrong?
+                        .map(|child| child.to_dissector_info(scope)) // TODO: the prefix will be wrong?
                         .collect::<Vec<_>>(),
                     constraints: self
                         .constraints()
-                        .map(|constraint| constraint.to_dissector_info(ctx.scope, self))
+                        .map(|constraint| constraint.to_dissector_info(scope, self))
                         .collect::<Vec<_>>(),
                 }
             }
@@ -365,7 +370,7 @@ impl ConstraintDissectorInfo {
 trait FieldExt {
     fn to_dissector_info(
         &self,
-        ctx: &Context,
+        ctx: &mut FieldContext,
         bit_offset: &BitLen,
         decl: &Decl<pdl_compiler::analyzer::ast::Annotation>,
         last_field: Option<&mut FieldDissectorInfo>,
@@ -835,7 +840,7 @@ impl FieldDissectorInfo {
 impl FieldExt for Field<analyzer::ast::Annotation> {
     fn to_dissector_info(
         &self,
-        ctx: &Context,
+        ctx: &mut FieldContext,
         bit_offset: &BitLen,
         decl: &Decl<pdl_compiler::analyzer::ast::Annotation>,
         last_field: Option<&mut FieldDissectorInfo>,
@@ -892,7 +897,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     bit_offset: *bit_offset,
                     ftype,
                     len: RuntimeLenInfo::fixed(BitLen(*width)),
-                    endian: ctx.endian(),
+                    endian: ctx.scope.file.endianness.value,
                     validate_expr: None,
                 })
             }
@@ -910,7 +915,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     ftype,
                     bit_offset: *bit_offset,
                     len: RuntimeLenInfo::fixed(BitLen(width * 8)),
-                    endian: ctx.endian(),
+                    endian: ctx.scope.file.endianness.value,
                     validate_expr: None,
                 })
             }
@@ -930,7 +935,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     ftype,
                     bit_offset: *bit_offset,
                     len: field_len,
-                    endian: ctx.endian(),
+                    endian: ctx.scope.file.endianness.value,
                     children,
                 })
             }
@@ -950,7 +955,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     ftype,
                     bit_offset: *bit_offset,
                     len: field_len,
-                    endian: ctx.endian(),
+                    endian: ctx.scope.file.endianness.value,
                     children: vec![],
                 })
             }
@@ -962,32 +967,36 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     ftype,
                     bit_offset: *bit_offset,
                     len: RuntimeLenInfo::fixed(BitLen(*width)),
-                    endian: ctx.endian(),
+                    endian: ctx.scope.file.endianness.value,
                     validate_expr: Some(format!("value == {value}")),
                 })
             }
             FieldDesc::FixedEnum { enum_id, tag_id } => {
-                let referenced_enum = ctx.scope.typedef[enum_id].to_dissector_info(ctx);
+                ctx.num_fixed += 1;
+                let referenced_enum = ctx.scope.typedef[enum_id].to_dissector_info(ctx.scope);
                 let ftype = FType::from(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
                     display_name: format!("Fixed value: {tag_id}"),
-                    abbr: format!("_fixed_{}_{}", self.loc.start.line, self.loc.start.column),
+                    abbr: format!("_fixed_{}", ctx.num_fixed - 1),
                     ftype,
                     bit_offset: *bit_offset,
                     len: referenced_enum.decl_len(),
-                    endian: ctx.endian(),
+                    endian: ctx.scope.file.endianness.value,
                     validate_expr: Some(format!(r#"{enum_id}_enum:match("{tag_id}", value)"#)),
                 })
             }
-            FieldDesc::Reserved { width } => Some(FieldDissectorInfo::Scalar {
-                display_name: String::from("Reserved"),
-                abbr: "_reserved_".into(),
-                ftype: FType(None),
-                bit_offset: *bit_offset,
-                len: RuntimeLenInfo::fixed(BitLen(*width)),
-                endian: ctx.endian(),
-                validate_expr: Some("value == 0".into()),
-            }),
+            FieldDesc::Reserved { width } => {
+                ctx.num_reserved += 1;
+                Some(FieldDissectorInfo::Scalar {
+                    display_name: String::from("Reserved"),
+                    abbr: format!("_reserved_{}", ctx.num_reserved - 1),
+                    ftype: FType(Some(BitLen(*width))),
+                    bit_offset: *bit_offset,
+                    len: RuntimeLenInfo::fixed(BitLen(*width)),
+                    endian: ctx.scope.file.endianness.value,
+                    validate_expr: None,
+                })
+            }
             FieldDesc::Array {
                 id,
                 width,
@@ -999,16 +1008,16 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     name: id.clone(),
                     abbr: id.clone(),
                     decl: Box::new(
-                        {
-                            let this = &ctx;
-                            this.scope.typedef.get(type_id).copied()
-                        }
-                        .expect("Unresolved typedef")
-                        .to_dissector_info(ctx),
+                        ctx.scope
+                            .typedef
+                            .get(type_id)
+                            .copied()
+                            .expect("Unresolved typedef")
+                            .to_dissector_info(ctx.scope),
                     ),
                     size_modifier: size_modifier.clone(),
                     count: *size,
-                    endian: ctx.endian(),
+                    endian: ctx.scope.file.endianness.value,
                     pad_to_size: None,
                 }),
                 (Some(width), None) => Some(FieldDissectorInfo::ScalarArray {
@@ -1016,7 +1025,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     abbr: id.clone(),
                     count: *size,
                     size_modifier: size_modifier.clone(),
-                    endian: ctx.endian(),
+                    endian: ctx.scope.file.endianness.value,
                     ftype: FType(Some(BitLen(*width))),
                     bit_offset: BitLen::default(),
                     item_len: BitLen(*width),
@@ -1032,7 +1041,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     ftype,
                     bit_offset: *bit_offset,
                     len: RuntimeLenInfo::fixed(BitLen(*width)),
-                    endian: ctx.endian(),
+                    endian: ctx.scope.file.endianness.value,
                     validate_expr: None,
                 })
             }
@@ -1042,12 +1051,13 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 set_value,
             } => todo!(),
             FieldDesc::Typedef { id, type_id } => {
-                let dissector_info = {
-                    let this = &ctx;
-                    this.scope.typedef.get(type_id).copied()
-                }
-                .expect("Unresolved typedef")
-                .to_dissector_info(ctx);
+                let dissector_info = ctx
+                    .scope
+                    .typedef
+                    .get(type_id)
+                    .copied()
+                    .expect("Unresolved typedef")
+                    .to_dissector_info(ctx.scope);
                 Some(FieldDissectorInfo::Typedef {
                     name: id.into(),
                     abbr: id.into(),
@@ -1055,10 +1065,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     endian: ctx.scope.file.endianness.value,
                 })
             }
-            FieldDesc::Group {
-                group_id,
-                constraints,
-            } => todo!(),
+            FieldDesc::Group { .. } => unreachable!(), // Groups are inlined by the time they reach here
         }
     }
 }
@@ -1094,7 +1101,7 @@ fn generate_for_decl(
     scope: &Scope<pdl_compiler::analyzer::ast::Annotation>,
     writer: &mut impl std::io::Write,
 ) -> anyhow::Result<()> {
-    let target_dissector_info = decl.to_dissector_info(&Context { scope });
+    let target_dissector_info = decl.to_dissector_info(scope);
 
     writedoc!(
         writer,
@@ -1135,7 +1142,7 @@ pub fn run(args: Args, writer: &mut impl std::io::Write) -> anyhow::Result<()> {
     write!(writer, "{}", include_str!("utils.lua"))?;
     for target_packet in args.target_packets {
         for decl in analyzed_file.declarations.iter() {
-            let decl_dissector_info = decl.to_dissector_info(&Context { scope: &scope });
+            let decl_dissector_info = decl.to_dissector_info(&scope);
             decl_dissector_info.write_proto_fields(writer)?;
             decl_dissector_info.write_dissect_fn(writer)?;
         }
