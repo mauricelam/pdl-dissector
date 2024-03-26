@@ -15,6 +15,7 @@ enum PacketType: 8 {
   Fixed = 11,
   Padding = 12,
   Reserved = 13,
+  Optional = 14,
 }
 
 // A top level packet
@@ -168,3 +169,22 @@ packet Reserved_DeloreanCoffee: TopLevel(type = Reserved) {
 }
 
 // Example 14: Optional
+
+struct Optional_Cream {
+  fat_percentage: 8,
+}
+
+enum Optional_Alcohol: 8 {
+  WHISKY = 0,
+  COGNAC = 1,
+}
+
+packet Optional_CoffeeWithAdditions: TopLevel(type = Optional) {
+  want_sugar: 1,
+  want_cream: 1,
+  want_alcohol: 1,
+  _reserved_: 5,
+  sugar: 16 if want_sugar = 1,
+  cream: Optional_Cream if want_cream = 1,
+  alcohol: Optional_Alcohol if want_alcohol = 1,
+}

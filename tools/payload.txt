@@ -86,3 +86,18 @@ I2019-01-01 00:00:00
 # Type = Reserved
 I2019-01-01 00:00:00
 00000000: 0d 01 02 03
+
+# Type = Optional, want_sugar = 1, want_cream = 1, want_alcohol = 1
+# sugar = 0x3344, cream = {fat_percentage: 2}, alcohol = WHISKY
+I2019-01-01 00:00:00
+00000000: 0e e0 44 33 02 00
+
+# Type = Optional, want_sugar = 0, want_cream = 0, want_alcohol = 1
+# alcohol = WHISKY
+I2019-01-01 00:00:00
+00000000: 0e 20 00
+
+# Type = Optional, want_sugar = 1, want_cream = 0, want_alcohol = 1
+# sugar = 0x3344, alcohol = COGNAC
+I2019-01-01 00:00:00
+00000000: 0e a0 44 33 01
