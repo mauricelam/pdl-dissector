@@ -73,3 +73,12 @@ I2019-01-01 00:00:00
 # Type = Fixed, fixed field 1 = 42, fixed field 2 = Cream
 I2019-01-01 00:00:00
 00000000: 0b 2a 01
+
+# Type = Padding, additions = [Cream, Custom(20)], padding to 10
+I2019-01-01 00:00:00
+00000000: 0c 01 14 00 00 00 00 00 00 00 00
+
+# Type = Padding, additions = [Cream, Custom(20)]
+# Warning: Unexpected end, length shorter than padding
+I2019-01-01 00:00:00
+00000000: 0c 01 14

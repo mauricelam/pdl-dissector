@@ -247,15 +247,22 @@ impl DeclExt for Decl<analyzer::ast::Annotation> {
                 let mut bit_offset = BitLen(0);
                 DeclDissectorInfo::Sequence {
                     name: id.clone(),
-                    fields: self
-                        .fields()
-                        .filter_map(|field| {
-                            field.to_dissector_info(ctx, &bit_offset, self).map(|f| {
-                                bit_offset.0 = (bit_offset.0 + f.len().bit_offset().0) % 8;
-                                f
-                            })
-                        })
-                        .collect(),
+                    fields: {
+                        let mut field_dissector_infos = vec![];
+                        for field in self.fields() {
+                            if let Some(dissector_info) = field.to_dissector_info(
+                                ctx,
+                                &bit_offset,
+                                self,
+                                field_dissector_infos.last_mut(),
+                            ) {
+                                bit_offset.0 =
+                                    (bit_offset.0 + dissector_info.len().bit_offset().0) % 8;
+                                field_dissector_infos.push(dissector_info);
+                            }
+                        }
+                        field_dissector_infos
+                    },
                     children: ctx
                         .scope
                         .iter_children(self)
@@ -361,6 +368,7 @@ trait FieldExt {
         ctx: &Context,
         bit_offset: &BitLen,
         decl: &Decl<pdl_compiler::analyzer::ast::Annotation>,
+        last_field: Option<&mut FieldDissectorInfo>,
     ) -> Option<FieldDissectorInfo>;
 }
 
@@ -407,6 +415,7 @@ pub enum FieldDissectorInfo {
         count: Option<usize>,
         size_modifier: Option<String>,
         endian: EndiannessValue,
+        pad_to_size: Option<usize>,
     },
     ScalarArray {
         display_name: String,
@@ -418,6 +427,7 @@ pub enum FieldDissectorInfo {
         count: Option<usize>,
         size_modifier: Option<String>,
         endian: EndiannessValue,
+        pad_to_size: Option<usize>,
     },
 }
 
@@ -503,9 +513,7 @@ impl FieldDissectorInfo {
             }
             | FieldDissectorInfo::TypedefArray {
                 name, abbr, decl, ..
-            } => match &**decl {
-                // TODO: Seems like protocol_fields definition for a Typedef field here is missing
-                // Shouldn't be None on the next line
+            } => match decl.as_ref() {
                 DeclDissectorInfo::Sequence { fields, .. } => {
                     for field in fields {
                         field.field_declaration(writer)?;
@@ -589,17 +597,18 @@ impl FieldDissectorInfo {
             }
             FieldDissectorInfo::Typedef {
                 name,
-                abbr: _,
+                abbr,
                 decl,
                 endian,
-            } => self.write_typedef_dissect(writer, decl, name, *endian)?,
+            } => self.write_typedef_dissect(writer, decl, name, abbr, *endian)?,
             FieldDissectorInfo::TypedefArray {
                 name,
-                abbr: _,
+                abbr,
                 decl,
                 count,
                 size_modifier,
                 endian,
+                pad_to_size,
             } => {
                 let count = count.unwrap_or(65536); // Cap at 65536 to avoid infinite loop
                 writedoc!(
@@ -615,8 +624,18 @@ impl FieldDissectorInfo {
                     "#,
                     size_modifier = size_modifier.as_deref().unwrap_or_default(),
                 )?;
-                self.write_typedef_dissect(&mut writer.indent(), decl, name, *endian)?;
+                self.write_typedef_dissect(&mut writer.indent(), decl, name, abbr, *endian)?;
                 writeln!(writer, r#"end"#)?;
+                if let Some(octet_size) = pad_to_size {
+                    writedoc!(
+                        writer,
+                        r#"
+                        if i - initial_i < {octet_size} then
+                            tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected a minimum of {octet_size} octets in field `{name}`")
+                        end
+                        "#
+                    )?;
+                }
             }
             FieldDissectorInfo::ScalarArray {
                 abbr,
@@ -736,6 +755,7 @@ impl FieldDissectorInfo {
         writer: &mut impl std::io::Write,
         decl: &DeclDissectorInfo,
         name: &str,
+        abbr: &str,
         endian: EndiannessValue,
     ) -> std::io::Result<()> {
         match decl {
@@ -777,7 +797,7 @@ impl FieldDissectorInfo {
                         tree:add_expert_info(PI_MALFORMED, PI_WARN, "Unknown enum value: " .. field_values[path .. ".{name}"])
                     end
                     if field_len ~= 0 then
-                        tree:{add_fn}(fields[path .. ".{name}"].field, buffer(i, field_len))
+                        tree:{add_fn}(fields[path .. ".{abbr}"].field, buffer(i, field_len))
                         i = i + field_len
                     end
                     "#,
@@ -801,7 +821,7 @@ impl FieldDissectorInfo {
                     local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
                     field_values[path .. ".{name}"] = buffer(i, field_len):{buffer_value_function}
                     if field_len ~= 0 then
-                        tree:{add_fn}(fields[path .. ".{name}"].field, buffer(i, field_len))
+                        tree:{add_fn}(fields[path .. ".{abbr}"].field, buffer(i, field_len))
                         i = i + field_len
                     end
                     "#,
@@ -818,6 +838,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
         ctx: &Context,
         bit_offset: &BitLen,
         decl: &Decl<pdl_compiler::analyzer::ast::Annotation>,
+        last_field: Option<&mut FieldDissectorInfo>,
     ) -> Option<FieldDissectorInfo> {
         debug!(
             "Write field: {:?}\nannot={:?}\ndecl={:?}",
@@ -829,15 +850,34 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 // Actual checksum field is a TypeDef.
                 None
             }
-            FieldDesc::Padding { size: byte_size } => Some(FieldDissectorInfo::Scalar {
-                display_name: "Padding".into(),
-                abbr: "padding".into(),
-                bit_offset: *bit_offset,
-                ftype: FType(None),
-                len: RuntimeLenInfo::fixed(BitLen(*byte_size)),
-                endian: ctx.endian(),
-                validate_expr: Some(r#"value == string.rep("\000", #value)"#.to_string()),
-            }),
+            FieldDesc::Padding { size: octet_size } => {
+                match last_field.unwrap() {
+                    FieldDissectorInfo::TypedefArray {
+                        name: display_name,
+                        pad_to_size,
+                        ..
+                    }
+                    | FieldDissectorInfo::ScalarArray {
+                        display_name,
+                        pad_to_size,
+                        ..
+                    } => {
+                        *display_name = format!("{display_name} (Padded)");
+                        *pad_to_size = Some(*octet_size);
+                    }
+                    _ => unreachable!(),
+                }
+                None
+            }
+            // Some(FieldDissectorInfo::Scalar {
+            //     display_name: "Padding".into(),
+            //     abbr: "padding".into(),
+            //     bit_offset: *bit_offset,
+            //     ftype: FType(None),
+            //     len: RuntimeLenInfo::fixed(BitLen(*octet_size)),
+            //     endian: ctx.endian(),
+            //     validate_expr: Some(r#"value == string.rep("\000", #value)"#.to_string()),
+            // }),
             FieldDesc::Size { field_id, width } => {
                 let ftype = FType::from(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
@@ -969,6 +1009,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     size_modifier: size_modifier.clone(),
                     count: *size,
                     endian: ctx.endian(),
+                    pad_to_size: None,
                 }),
                 (Some(width), None) => Some(FieldDissectorInfo::ScalarArray {
                     display_name: id.clone(),
@@ -979,6 +1020,7 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     ftype: FType(Some(BitLen(*width))),
                     bit_offset: BitLen::default(),
                     item_len: BitLen(*width),
+                    pad_to_size: None,
                 }),
                 _ => unreachable!(),
             },
@@ -1073,6 +1115,8 @@ fn generate_for_decl(
     )?;
     Ok(())
 }
+
+// TODO: Translate diagnostics to anyhow error
 
 pub fn run(args: Args, writer: &mut impl std::io::Write) -> anyhow::Result<()> {
     let _ = env_logger::try_init();

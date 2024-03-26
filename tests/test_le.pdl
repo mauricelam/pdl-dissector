@@ -13,6 +13,7 @@ enum PacketType: 8 {
   InheritanceWithoutConstraint = 9,
   PayloadWithSizeModifier = 10,
   Fixed = 11,
+  Padding = 12,
 }
 
 // A top level packet
@@ -153,6 +154,11 @@ packet Fixed_Teapot: TopLevel(type = Fixed) {
 }
 
 // Example 12: Padding
+
+packet Padding_PaddedCoffee: TopLevel(type = Padding) {
+  additions: Enum_CoffeeAddition[],
+  _padding_[10]
+}
 
 // Example 13: Reserved
 
