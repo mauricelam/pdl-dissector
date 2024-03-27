@@ -1,3 +1,4 @@
+pub mod diagnostics;
 #[cfg(test)]
 mod fakes;
 mod indent_write;
@@ -5,11 +6,12 @@ mod len_info;
 pub mod pdml;
 mod utils;
 
-use anyhow::anyhow;
+use codespan_reporting::diagnostic::Diagnostic;
+use diagnostics::Diagnostics;
 use indent_write::IoWriteExt;
 use indoc::{formatdoc, writedoc};
 use len_info::{FType, RuntimeLenInfo};
-use log::{debug, info};
+use log::debug;
 use pdl_compiler::{
     analyzer::{self, Scope},
     ast::{
@@ -1163,7 +1165,7 @@ fn generate_for_decl(
     decl: &Decl<pdl_compiler::analyzer::ast::Annotation>,
     scope: &Scope<pdl_compiler::analyzer::ast::Annotation>,
     writer: &mut impl std::io::Write,
-) -> anyhow::Result<()> {
+) -> std::io::Result<()> {
     let target_dissector_info = decl.to_dissector_info(scope);
 
     writedoc!(
@@ -1186,22 +1188,25 @@ fn generate_for_decl(
     Ok(())
 }
 
-// TODO: Translate diagnostics to anyhow error
-
-pub fn run(args: Args, writer: &mut impl std::io::Write) -> anyhow::Result<()> {
+pub fn run(
+    args: Args,
+    sources: &mut SourceDatabase,
+    writer: &mut impl std::io::Write,
+) -> Result<(), Diagnostics> {
     let _ = env_logger::try_init();
 
-    let mut sources = SourceDatabase::new();
     let file = pdl_compiler::parser::parse_file(
-        &mut sources,
+        sources,
         args.pdl_file
             .to_str()
             .expect("pdl_file path should be a valid string"),
-    )
-    .map_err(|msg| anyhow!("{msg:?}"))?;
-    let analyzed_file = analyzer::analyze(&file).map_err(|msg| anyhow!("{msg:?}"))?;
-    let scope = Scope::new(&analyzed_file).map_err(|msg| anyhow!("{msg:?}"))?;
-    assert!(!args.target_packets.is_empty());
+    )?;
+    let analyzed_file = analyzer::analyze(&file)?;
+    let scope = Scope::new(&analyzed_file)?;
+    if args.target_packets.is_empty() {
+        Err(Diagnostic::error().with_message("Target packet must be specified"))?
+    }
+
     write!(writer, "{}", include_str!("utils.lua"))?;
     for target_packet in args.target_packets {
         for decl in analyzed_file.declarations.iter() {
@@ -1224,7 +1229,8 @@ pub fn run(args: Args, writer: &mut impl std::io::Write) -> anyhow::Result<()> {
             if let Some(decl) = target_decl {
                 generate_for_decl(&target_packet, decl, &scope, writer)?;
             } else {
-                anyhow::bail!("Unable to find declaration {:?}", target_packet);
+                Err(Diagnostic::error()
+                    .with_message(format!("Unable to find declaration {target_packet:?}")))?;
             }
         }
     }
@@ -1234,6 +1240,8 @@ pub fn run(args: Args, writer: &mut impl std::io::Write) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use std::{io::BufWriter, path::PathBuf};
+
+    use pdl_compiler::ast::SourceDatabase;
 
     use crate::{fakes::wireshark_lua, run, Args};
 
@@ -1298,7 +1306,7 @@ mod tests {
 
     fn run_with_args(args: Args) -> Vec<u8> {
         let mut writer = BufWriter::new(Vec::new());
-        run(args, &mut writer).unwrap();
+        run(args, &mut SourceDatabase::new(), &mut writer).unwrap();
         writer.into_inner().unwrap()
     }
 }

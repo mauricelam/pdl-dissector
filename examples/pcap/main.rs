@@ -6,15 +6,22 @@ fn main() {
 mod tests {
     use std::{io::BufWriter, path::PathBuf};
 
+    use pdl_compiler::ast::SourceDatabase;
     use pdl_dissector::Args;
 
     #[test]
     fn golden_file() {
         let mut writer = BufWriter::new(Vec::new());
-        pdl_dissector::run(Args {
-            pdl_file: PathBuf::from(file!()).parent().unwrap().join("pcap.pdl"),
-            target_packets: vec![String::from("PcapFile")],
-        }, &mut writer).unwrap();
+        let mut sources = SourceDatabase::new();
+        pdl_dissector::run(
+            Args {
+                pdl_file: PathBuf::from(file!()).parent().unwrap().join("pcap.pdl"),
+                target_packets: vec![String::from("PcapFile")],
+            },
+            &mut sources,
+            &mut writer,
+        )
+        .unwrap();
         let dissector_output = writer.into_inner().unwrap();
         pretty_assertions::assert_str_eq!(
             include_str!("pcap_dissector.lua"),

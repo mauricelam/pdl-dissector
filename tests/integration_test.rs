@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use hex_literal::hex;
+use pdl_compiler::ast::SourceDatabase;
 use pdl_dissector::{
     pdml::{self, Pdml},
     Args,
@@ -13,7 +14,8 @@ fn golden_test() -> anyhow::Result<()> {
         pdl_file: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_le.pdl"),
         target_packets: vec![String::from("TopLevel")],
     };
-    pdl_dissector::run(args, &mut file)?;
+    let mut sources = SourceDatabase::new();
+    pdl_dissector::run(args, &mut sources, &mut file)?;
 
     let mut cmd = std::process::Command::new("tshark");
     cmd.args([

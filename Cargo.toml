@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.79"
 clap = { version = "4.5.0", features = ["derive"] }
+codespan-reporting = "0.11.1"
 env_logger = "0.11.2"
 hex-literal = "0.4.1"
 indent_write = "2.2.0"
