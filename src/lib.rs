@@ -93,7 +93,7 @@ impl DeclDissectorInfo {
                 values,
                 len: _,
             } => {
-                writeln!(writer, r#"local {name}_enum = ProtoEnum:new()"#)?;
+                writeln!(writer, r#"{name}_enum = ProtoEnum:new()"#)?;
                 for tag in values {
                     match tag {
                         Tag::Value(TagValue { id, loc: _, value }) => {
@@ -135,7 +135,7 @@ impl DeclDissectorInfo {
                 writedoc!(
                     writer,
                     r#"
-                    local {name}_protocol_fields_table = {{}}
+                    {name}_protocol_fields_table = {{}}
                     function {name}_protocol.dissector(buffer, pinfo, tree)
                         pinfo.cols.protocol = "{name}"
                         local subtree = tree:add({name}_protocol, buffer(), "{name}")
@@ -1191,8 +1191,7 @@ fn generate_for_decl(
     writedoc!(
         writer,
         r#"
-        local tcp_port = DissectorTable.get("tcp.port")
-        tcp_port:add(8000, {decl_name}_protocol)
+        DissectorTable.get("tcp.port"):add(8000, {decl_name}_protocol)
         "#
     )?;
     Ok(())
@@ -1269,7 +1268,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // TODO: Fix
     fn test_le_test_file() -> anyhow::Result<()> {
         // Copied from pdl-compiler/tests/canonical/le_test_file.pdl
         let args = Args {
