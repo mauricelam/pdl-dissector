@@ -16,6 +16,7 @@ enum PacketType: 8 {
   Padding = 12,
   Reserved = 13,
   Optional = 14,
+  UnalignedEnum = 15,
 }
 
 // A top level packet
@@ -187,4 +188,17 @@ packet Optional_CoffeeWithAdditions: TopLevel(type = Optional) {
   sugar: 16 if want_sugar = 1,
   cream: Optional_Cream if want_cream = 1,
   alcohol: Optional_Alcohol if want_alcohol = 1,
+}
+
+// Example 15: Unaligned enum
+enum UnalignedEnum: 3 {
+  A = 1,
+  B = 2,
+  C = 3,
+}
+
+packet UnalignedEnum_packet: TopLevel(type = UnalignedEnum) {
+  enum1: UnalignedEnum,
+  enum2: UnalignedEnum,
+  enum3: UnalignedEnum,
 }

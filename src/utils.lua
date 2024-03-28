@@ -23,14 +23,6 @@ function sum_or_nil(...)
     return sum
 end
 
-function create_bit_mask(offset, len, field_size)
-    local result = 0
-    for i = (field_size - offset - len), (field_size - offset - 1) do
-        result = result + 2 ^ i
-    end
-    return result
-end
-
 function get_ftype(bit_offset, bitlen)
     local effective_len = bit_offset % 8 + bitlen
     if effective_len <= 8 then
@@ -46,6 +38,25 @@ function get_ftype(bit_offset, bitlen)
     end
 end
 
+function get_value(buf, is_little_endian)
+    local len = buf:len()
+    if len >= 1 and len <= 4 then
+        if is_little_endian then
+            return buf:le_uint()
+        else
+            return buf:uint()
+        end
+    elseif len >= 5 and len <= 8 then
+        if is_little_endian then
+            return buf:le_uint64()
+        else
+            return buf:uint64()
+        end
+    else
+        return buf:bytes()
+    end
+end
+
 AlignedProtoField = {}
 function AlignedProtoField:new(o)
     local o = o or {
@@ -53,7 +64,8 @@ function AlignedProtoField:new(o)
         abbr = nil,
         ftype = nil,
         valuestring = nil,
-        base = nil
+        base = nil,
+        is_little_endian = nil,
     }
     o.field = ProtoField.new(o.name, o.abbr, o.ftype, o.valuestring, o.base)
     setmetatable(o, self)
@@ -61,10 +73,15 @@ function AlignedProtoField:new(o)
     return o
 end
 
--- function AlignedProtoField:dissect(tree, buffer)
---     field_values[self.abbr] = buffer(i, math.ceil(i + field_len - math.floor(i))):{buffer_value_function}
---     tree:add_le(fields[path .. "." .. self.name], buffer(i, math.ceil(i + field_len - math.floor(i))))
--- end
+function AlignedProtoField:dissect(tree, buffer, runtime_len)
+    local subtree
+    if self.is_little_endian then
+        subtree = tree:add_le(self.field, buffer(i, runtime_len))
+    else
+        subtree = tree:add(self.field, buffer(i, runtime_len))
+    end
+    return subtree, get_value(buffer(i, runtime_len), self.is_little_endian), runtime_len * 8
+end
 
 UnalignedProtoField = {}
 function UnalignedProtoField:new(o)
@@ -73,7 +90,8 @@ function UnalignedProtoField:new(o)
         abbr = nil,
         ftype = nil,
         bitoffset = nil,
-        bitlen = nil -- optional
+        bitlen = nil, -- optional
+        valuestring = nil -- optional
     }
     o.field = ProtoField.new(o.name, o.abbr, ftypes.BYTES)
     setmetatable(o, self)
@@ -92,9 +110,21 @@ function UnalignedProtoField:dissect(tree, buffer, runtime_len)
     end
     -- Then add the remaining insignificant bits as dots
     label = label .. string.rep(".", numbytes * 8 - bitlen - self.bitoffset)
-    label = format_bitstring(label) .. " = " .. self.name .. ": " .. value -- Print out the string label
-    tree:add(buf, self.field, value, label):set_text(label)
-    return value, bitlen
+    label = format_bitstring(label) .. " = " .. self.name
+    label = label .. ": " .. self:get_value_display_string(value) -- Print out the string label
+    local subtree = tree:add(buf, self.field, value, label):set_text(label)
+    return subtree, value, bitlen
+end
+
+function UnalignedProtoField:get_value_display_string(value)
+    if self.valuestring ~= nil then
+        for _, range in ipairs(self.valuestring) do
+            if range[1] <= value and value <= range[2] then
+                return range[3] .. " (" .. value .. ")"
+            end
+        end
+    end
+    return value
 end
 
 ProtoEnum = {}

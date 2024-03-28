@@ -34,7 +34,6 @@ impl RuntimeLenInfo {
                 referenced_fields: _,
                 constant_factor,
             } => *constant_factor,
-            // TODO: Can unbounded array be unaligned?
             RuntimeLenInfo::Unbounded => BitLen(0),
         }
     }

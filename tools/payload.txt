@@ -101,3 +101,7 @@ I2019-01-01 00:00:00
 # sugar = 0x3344, alcohol = COGNAC
 I2019-01-01 00:00:00
 00000000: 0e a0 44 33 01
+
+# Type = UnalignedEnum, enum1 = A, enum2 = B, enum3 = C
+I2019-01-01 00:00:00
+00000000: 0f 29 80

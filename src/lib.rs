@@ -238,14 +238,11 @@ impl DeclExt for Decl<analyzer::ast::Annotation> {
     fn to_dissector_info(&self, scope: &Scope) -> DeclDissectorInfo {
         debug!("Write decl: {self:?}");
         match &self.desc {
-            DeclDesc::Enum { id, tags, width } => {
-                assert!(width % 8 == 0, "Unaligned field lengths are not supported");
-                DeclDissectorInfo::Enum {
-                    name: id.clone(),
-                    values: tags.clone(),
-                    len: BitLen(*width),
-                }
-            }
+            DeclDesc::Enum { id, tags, width } => DeclDissectorInfo::Enum {
+                name: id.clone(),
+                values: tags.clone(),
+                len: BitLen(*width),
+            },
             DeclDesc::Checksum { id, width, .. } => DeclDissectorInfo::Checksum {
                 name: id.clone(),
                 len: BitLen(*width),
@@ -393,17 +390,30 @@ trait FieldExt {
 }
 
 #[derive(Debug, Clone)]
+pub struct CommonFieldDissectorInfo {
+    /// Actual name of the field (the string that appears in the tree).
+    display_name: String,
+    /// Filter name of the field (the string that is used in filters).
+    abbr: String,
+    bit_offset: BitLen,
+    endian: EndiannessValue,
+}
+
+#[derive(Debug, Clone)]
+pub struct ArrayFieldDissectorInfo {
+    /// Number of items in the array, or `None` if the array is unbounded
+    count: Option<usize>,
+    size_modifier: Option<String>,
+    pad_to_size: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
 pub enum FieldDissectorInfo {
     Scalar {
-        /// Actual name of the field (the string that appears in the tree).
-        display_name: String,
-        /// Filter name of the field (the string that is used in filters).
-        abbr: String,
-        bit_offset: BitLen,
+        common: CommonFieldDissectorInfo,
         ftype: FType,
         /// The length this field takes before repetition.
         len: RuntimeLenInfo,
-        endian: EndiannessValue,
         /// A lua-expression that yields a boolean value. If the boolean result
         /// is false, a warning will be shown in the dissected info. `value` is
         /// a variable that can be used to get the value of this field.
@@ -412,58 +422,39 @@ pub enum FieldDissectorInfo {
         optional_field: Option<(String, usize)>,
     },
     Payload {
-        /// Actual name of the field (the string that appears in the tree).
-        display_name: String,
-        /// Filter name of the field (the string that is used in filters).
-        abbr: String,
-        bit_offset: BitLen,
+        common: CommonFieldDissectorInfo,
         ftype: FType,
         /// The length this field takes before repetition.
         len: RuntimeLenInfo,
-        endian: EndiannessValue,
         children: Vec<String>,
     },
     Typedef {
-        name: String,
-        abbr: String,
+        common: CommonFieldDissectorInfo,
         decl: Box<DeclDissectorInfo>,
-        endian: EndiannessValue,
         /// (optional field name, match value)
         optional_field: Option<(String, usize)>,
     },
     TypedefArray {
-        name: String,
-        abbr: String,
+        common: CommonFieldDissectorInfo,
         decl: Box<DeclDissectorInfo>,
-        /// Number of items in the array, or `None` if the array is unbounded
-        count: Option<usize>,
-        size_modifier: Option<String>,
-        endian: EndiannessValue,
-        pad_to_size: Option<usize>,
+        array_info: ArrayFieldDissectorInfo,
     },
     ScalarArray {
-        display_name: String,
-        abbr: String,
+        common: CommonFieldDissectorInfo,
         ftype: FType,
-        bit_offset: BitLen,
         item_len: BitLen,
-        /// Number of items in the array, or `None` if the array is unbounded
-        count: Option<usize>,
-        size_modifier: Option<String>,
-        endian: EndiannessValue,
-        pad_to_size: Option<usize>,
+        array_info: ArrayFieldDissectorInfo,
     },
 }
 
 impl FieldDissectorInfo {
     pub fn is_unaligned(&self) -> bool {
         match self {
-            FieldDissectorInfo::Scalar {
-                bit_offset, ftype, ..
+            FieldDissectorInfo::Scalar { common, ftype, .. }
+            | FieldDissectorInfo::Payload { common, ftype, .. } => {
+                common.bit_offset.0 % 8 != 0
+                    || ftype.0.map(|len| len.0 % 8 != 0).unwrap_or_default()
             }
-            | FieldDissectorInfo::Payload {
-                bit_offset, ftype, ..
-            } => bit_offset.0 % 8 != 0 || ftype.0.map(|len| len.0 % 8 != 0).unwrap_or_default(),
             _ => false,
         }
     }
@@ -475,27 +466,15 @@ impl FieldDissectorInfo {
         writer: &mut impl std::io::Write,
     ) -> Result<(), std::io::Error> {
         match self {
-            FieldDissectorInfo::Scalar {
-                display_name,
-                abbr,
-                ftype,
-                bit_offset,
-                ..
-            }
-            | FieldDissectorInfo::ScalarArray {
-                display_name,
-                abbr,
-                ftype,
-                bit_offset,
-                ..
-            }
-            | FieldDissectorInfo::Payload {
-                display_name,
-                abbr,
-                ftype,
-                bit_offset,
-                ..
-            } => {
+            FieldDissectorInfo::Scalar { common, ftype, .. }
+            | FieldDissectorInfo::ScalarArray { common, ftype, .. }
+            | FieldDissectorInfo::Payload { common, ftype, .. } => {
+                let CommonFieldDissectorInfo {
+                    display_name,
+                    abbr,
+                    bit_offset,
+                    endian,
+                } = common;
                 let bitlen = ftype
                     .0
                     .map(|v| v.to_string())
@@ -509,10 +488,12 @@ impl FieldDissectorInfo {
                             abbr = path .. ".{abbr}",
                             ftype = {ftype},
                             bitoffset = {bit_offset},
-                            bitlen = {bitlen}
+                            bitlen = {bitlen},
+                            is_little_endian = {is_le},
                         }})
                         "#,
                         ftype = ftype.to_lua_expr(),
+                        is_le = *endian == EndiannessValue::LittleEndian,
                     )?;
                 } else {
                     writedoc!(
@@ -522,67 +503,92 @@ impl FieldDissectorInfo {
                             name = "{display_name}",
                             abbr = path .. ".{abbr}",
                             ftype = {ftype},
-                            bitlen = {bitlen}
+                            bitlen = {bitlen},
+                            is_little_endian = {is_le},
                         }})
                         "#,
                         ftype = ftype.to_lua_expr(),
+                        is_le = *endian == EndiannessValue::LittleEndian,
                     )?;
                 }
             }
-            FieldDissectorInfo::Typedef {
-                name,
-                abbr,
-                decl,
-                endian: _,
-                optional_field: _,
-            }
-            | FieldDissectorInfo::TypedefArray {
-                name, abbr, decl, ..
-            } => match decl.as_ref() {
-                DeclDissectorInfo::Sequence { fields, .. } => {
-                    for field in fields {
-                        field.field_declaration(writer)?;
+            FieldDissectorInfo::Typedef { common, decl, .. }
+            | FieldDissectorInfo::TypedefArray { common, decl, .. } => {
+                let CommonFieldDissectorInfo {
+                    display_name,
+                    abbr,
+                    bit_offset,
+                    endian,
+                } = common;
+                match decl.as_ref() {
+                    DeclDissectorInfo::Sequence { fields, .. } => {
+                        for field in fields {
+                            field.field_declaration(writer)?;
+                        }
+                    }
+                    DeclDissectorInfo::Enum {
+                        name: type_name,
+                        values: _,
+                        len,
+                    } => {
+                        let ftype = FType(Some(*len));
+                        if len.0 % 8 == 0 {
+                            writedoc!(
+                                writer,
+                                r#"
+                            fields[path .. ".{abbr}"] = AlignedProtoField:new({{
+                                name = "{display_name}",
+                                abbr = "{abbr}",
+                                ftype = {ftype},
+                                valuestring = {type_name}_enum.matchers,
+                                base = base.RANGE_STRING,
+                                is_little_endian = {is_le},
+                            }})
+                            "#,
+                                ftype = ftype.to_lua_expr(),
+                                is_le = *endian == EndiannessValue::LittleEndian,
+                            )?;
+                        } else {
+                            writedoc!(
+                                writer,
+                                r#"
+                                fields[path .. ".{abbr}"] = UnalignedProtoField:new({{
+                                    name = "{display_name}",
+                                    abbr = "{abbr}",
+                                    ftype = {ftype},
+                                    valuestring = {type_name}_enum.matchers,
+                                    bitoffset = {bit_offset},
+                                    bitlen = {len},
+                                    is_little_endian = {is_le},
+                                }})
+                                "#,
+                                ftype = ftype.to_lua_expr(),
+                                is_le = *endian == EndiannessValue::LittleEndian,
+                            )?;
+                        }
+                    }
+                    DeclDissectorInfo::Checksum {
+                        name: _type_name,
+                        len,
+                    } => {
+                        let ftype = FType(Some(*len));
+                        writedoc!(
+                            writer,
+                            r#"
+                            fields[path .. ".{abbr}"] = AlignedProtoField:new({{
+                                name = "{display_name}",
+                                abbr = "{abbr}",
+                                ftype = {ftype},
+                                base = base.HEX,
+                                is_little_endian = {is_le},
+                            }})
+                            "#,
+                            ftype = ftype.to_lua_expr(),
+                            is_le = *endian == EndiannessValue::LittleEndian,
+                        )?;
                     }
                 }
-                DeclDissectorInfo::Enum {
-                    name: type_name,
-                    values: _,
-                    len,
-                } => {
-                    let ftype = FType(Some(*len));
-                    writedoc!(
-                        writer,
-                        r#"
-                        fields[path .. ".{abbr}"] = AlignedProtoField:new({{
-                            name = "{name}",
-                            abbr = "{abbr}",
-                            ftype = {},
-                            valuestring = {type_name}_enum.matchers,
-                            base = base.RANGE_STRING
-                        }})
-                        "#,
-                        ftype.to_lua_expr()
-                    )?;
-                }
-                DeclDissectorInfo::Checksum {
-                    name: _type_name,
-                    len,
-                } => {
-                    let ftype = FType(Some(*len));
-                    writedoc!(
-                        writer,
-                        r#"
-                        fields[path .. ".{abbr}"] = AlignedProtoField:new({{
-                            name = "{name}",
-                            abbr = "{abbr}",
-                            ftype = {ftype},
-                            base = base.HEX,
-                        }})
-                        "#,
-                        ftype = ftype.to_lua_expr()
-                    )?;
-                }
-            },
+            }
         }
         Ok(())
     }
@@ -603,10 +609,8 @@ impl FieldDissectorInfo {
     pub fn write_dissect_fn(&self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
         match self {
             FieldDissectorInfo::Scalar {
-                abbr,
-                endian,
+                common,
                 validate_expr,
-                len,
                 optional_field,
                 ..
             } => match optional_field {
@@ -619,37 +623,27 @@ impl FieldDissectorInfo {
                     )?;
                     self.write_scalar_dissect(
                         &mut writer.indent(),
-                        abbr,
+                        &common.abbr,
                         &[],
                         validate_expr.clone(),
-                        len,
-                        *endian,
                     )?;
                     writeln!(writer, "end")?;
                 }
-                None => self.write_scalar_dissect(
-                    writer,
-                    abbr,
-                    &[],
-                    validate_expr.clone(),
-                    len,
-                    *endian,
-                )?,
+                None => {
+                    self.write_scalar_dissect(writer, &common.abbr, &[], validate_expr.clone())?
+                }
             },
             FieldDissectorInfo::Payload {
-                abbr,
-                endian,
+                common,
                 len,
                 children,
                 ..
             } => {
-                self.write_scalar_dissect(writer, abbr, children, None, len, *endian)?;
+                self.write_scalar_dissect(writer, &common.abbr, children, None)?;
             }
             FieldDissectorInfo::Typedef {
-                name,
-                abbr,
+                common,
                 decl,
-                endian,
                 optional_field,
             } => match optional_field {
                 Some((optional_field, optional_match_value)) => {
@@ -659,27 +653,43 @@ impl FieldDissectorInfo {
                         if field_values[path .. ".{optional_field}"] == {optional_match_value} then
                         "#
                     )?;
-                    self.write_typedef_dissect(&mut writer.indent(), decl, name, abbr, *endian)?;
+                    self.write_typedef_dissect(
+                        &mut writer.indent(),
+                        decl,
+                        &common.display_name,
+                        &common.abbr,
+                        common.endian,
+                    )?;
                     writeln!(writer, "end")?;
                 }
-                None => self.write_typedef_dissect(writer, decl, name, abbr, *endian)?,
+                None => self.write_typedef_dissect(
+                    writer,
+                    decl,
+                    &common.display_name,
+                    &common.abbr,
+                    common.endian,
+                )?,
             },
             FieldDissectorInfo::TypedefArray {
-                name,
-                abbr,
+                common,
                 decl,
-                count,
-                size_modifier,
-                endian,
-                pad_to_size,
+                array_info,
             } => {
+                let CommonFieldDissectorInfo {
+                    display_name, abbr, ..
+                } = common;
+                let ArrayFieldDissectorInfo {
+                    count,
+                    size_modifier,
+                    pad_to_size,
+                } = array_info;
                 let count = count.unwrap_or(65536); // Cap at 65536 to avoid infinite loop
                 writedoc!(
                     writer,
                     r#"
                     -- {self:?}
-                    local count = nil_coalesce(field_values[path .. ".{name}_count"], {count})
-                    local len_limit = field_values[path .. ".{name}_size"]{size_modifier}
+                    local count = nil_coalesce(field_values[path .. ".{display_name}_count"], {count})
+                    local len_limit = field_values[path .. ".{display_name}_size"]{size_modifier}
                     local initial_i = i
                     for j=1,count do
                         if len_limit ~= nil and i - initial_i >= len_limit then break end
@@ -687,29 +697,38 @@ impl FieldDissectorInfo {
                     "#,
                     size_modifier = size_modifier.as_deref().unwrap_or_default(),
                 )?;
-                self.write_typedef_dissect(&mut writer.indent(), decl, name, abbr, *endian)?;
+                self.write_typedef_dissect(
+                    &mut writer.indent(),
+                    decl,
+                    display_name,
+                    abbr,
+                    common.endian,
+                )?;
                 writeln!(writer, r#"end"#)?;
                 if let Some(octet_size) = pad_to_size {
                     writedoc!(
                         writer,
                         r#"
                         if i - initial_i < {octet_size} then
-                            tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected a minimum of {octet_size} octets in field `{name}`")
+                            tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected a minimum of {octet_size} octets in field `{display_name}`")
                         end
                         "#
                     )?;
                 }
             }
             FieldDissectorInfo::ScalarArray {
-                abbr,
-                count,
-                size_modifier,
-                endian,
+                common,
                 item_len,
-                ftype,
-                bit_offset,
+                array_info,
+                ftype: _,
                 ..
             } => {
+                let abbr = &common.abbr;
+                let ArrayFieldDissectorInfo {
+                    count,
+                    size_modifier,
+                    pad_to_size: _,
+                } = array_info;
                 let count = count.unwrap_or(65536); // Cap at 65536 to avoid infinite loop
                 writedoc!(
                     writer,
@@ -724,17 +743,7 @@ impl FieldDissectorInfo {
                     "#,
                     size_modifier = size_modifier.as_deref().unwrap_or_default(),
                 )?;
-                self.write_scalar_dissect(
-                    &mut writer.indent(),
-                    abbr,
-                    &[],
-                    None,
-                    &RuntimeLenInfo::Bounded {
-                        referenced_fields: vec![],
-                        constant_factor: *item_len,
-                    },
-                    *endian,
-                )?;
+                self.write_scalar_dissect(&mut writer.indent(), abbr, &[], None)?;
                 writeln!(writer, r#"end"#)?;
             }
         }
@@ -747,15 +756,8 @@ impl FieldDissectorInfo {
         abbr: &str,
         children: &[String],
         validate_expr: Option<String>,
-        len: &RuntimeLenInfo,
-        endian: EndiannessValue,
     ) -> std::io::Result<()> {
-        let add_fn = match endian {
-            EndiannessValue::LittleEndian => "add_le",
-            EndiannessValue::BigEndian => "add",
-        };
         let len_expr = self.len().to_lua_expr();
-        let buffer_value_function = buffer_value_lua_function(endian, len);
         let validate = validate_expr.as_ref().map(|validate_expr| {
             formatdoc!(
                 r#"
@@ -780,36 +782,26 @@ impl FieldDissectorInfo {
             children.iter().map(|child_name| {
                 (
                     format!("{child_name}_match_constraints(field_values, path)"),
-                    // TODO: Create a subtree?
                     move |w: &mut dyn std::io::Write| writedoc!(
                         w,
                         r#"
-                        local dissected_len = {child_name}_dissect(buffer(i, field_len), pinfo, tree, fields, path .. ".{child_name}")
+                        local subtree = tree:add("{child_name}")
+                        local dissected_len = {child_name}_dissect(buffer(i, field_len), pinfo, subtree, fields, path .. ".{child_name}")
                         i = i + dissected_len
                         "#,
                     )
                 )
             }),
-            Some(|w: &mut dyn std::io::Write| if self.is_unaligned() {
+            Some(|w: &mut dyn std::io::Write|
                 writedoc!(
                     w,
                     r#"
-                    field_values[path .. ".{abbr}"], bitlen = fields[path .. ".{abbr}"]:dissect(tree, buffer(i), field_len)
+                    subtree, field_values[path .. ".{abbr}"], bitlen = fields[path .. ".{abbr}"]:dissect(tree, buffer(i), field_len)
                     {validate}
                     i = i + bitlen / 8
                     "#,
                 )
-            } else {
-                writedoc!(
-                    w,
-                    r#"
-                    field_values[path .. ".{abbr}"] = buffer(i, field_len):{buffer_value_function}
-                    local subtree = tree:{add_fn}(fields[path .. ".{abbr}"].field, buffer(i, field_len))
-                    {validate}
-                    i = i + field_len
-                    "#,
-                )
-            }))?;
+            ))?;
         Ok(())
     }
 
@@ -839,30 +831,19 @@ impl FieldDissectorInfo {
                 )?;
             }
             DeclDissectorInfo::Enum {
-                name: type_name,
-                values: _,
-                len,
+                name: type_name, ..
             } => {
-                let add_fn = match endian {
-                    EndiannessValue::LittleEndian => "add_le",
-                    EndiannessValue::BigEndian => "add",
-                };
                 let len_expr = self.len().to_lua_expr();
-                let buffer_value_function =
-                    buffer_value_lua_function(endian, &RuntimeLenInfo::fixed(*len));
                 writedoc!(
                     writer,
                     r#"
                     -- {self:?}
-                    local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
-                    field_values[path .. ".{name}"] = buffer(i, field_len):{buffer_value_function}
+                    local field_len = enforce_len_limit(math.ceil({len_expr}), buffer(i):len(), tree)
+                    subtree, field_values[path .. ".{name}"], bitlen = fields[path .. ".{abbr}"]:dissect(tree, buffer(i), field_len)
                     if {type_name}_enum.by_value[field_values[path .. ".{name}"]] == nil then
                         tree:add_expert_info(PI_MALFORMED, PI_WARN, "Unknown enum value: " .. field_values[path .. ".{name}"])
                     end
-                    if field_len ~= 0 then
-                        tree:{add_fn}(fields[path .. ".{abbr}"].field, buffer(i, field_len))
-                        i = i + field_len
-                    end
+                    i = i + bitlen / 8
                     "#,
                 )?;
             }
@@ -916,17 +897,16 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
             FieldDesc::Padding { size: octet_size } => {
                 match last_field.unwrap() {
                     FieldDissectorInfo::TypedefArray {
-                        name: display_name,
-                        pad_to_size,
-                        ..
+                        common, array_info, ..
                     }
                     | FieldDissectorInfo::ScalarArray {
-                        display_name,
-                        pad_to_size,
-                        ..
+                        common, array_info, ..
                     } => {
-                        *display_name = format!("{display_name} (Padded)");
-                        *pad_to_size = Some(*octet_size);
+                        common.display_name = format!(
+                            "{display_name} (Padded)",
+                            display_name = common.display_name
+                        );
+                        array_info.pad_to_size = Some(*octet_size);
                     }
                     _ => unreachable!(),
                 }
@@ -935,18 +915,20 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
             FieldDesc::Size { field_id, width } => {
                 let ftype = FType::from(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
-                    display_name: format!(
-                        "Size({field_name})",
-                        field_name = match field_id.as_str() {
-                            "_payload_" => "Payload",
-                            _ => field_id,
-                        }
-                    ),
-                    abbr: format!("{field_id}_size"),
-                    bit_offset: *bit_offset,
+                    common: CommonFieldDissectorInfo {
+                        display_name: format!(
+                            "Size({field_name})",
+                            field_name = match field_id.as_str() {
+                                "_payload_" => "Payload",
+                                _ => field_id,
+                            }
+                        ),
+                        abbr: format!("{field_id}_size"),
+                        bit_offset: *bit_offset,
+                        endian: ctx.scope.file.endianness.value,
+                    },
                     ftype,
                     len: RuntimeLenInfo::fixed(BitLen(*width)),
-                    endian: ctx.scope.file.endianness.value,
                     validate_expr: None,
                     optional_field: None,
                 })
@@ -954,18 +936,20 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
             FieldDesc::Count { field_id, width } => {
                 let ftype = FType::from(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
-                    display_name: format!(
-                        "Count({field_id})",
-                        field_id = match field_id.as_str() {
-                            "_payload_" => "Payload",
-                            _ => field_id,
-                        }
-                    ),
-                    abbr: format!("{field_id}_count"),
+                    common: CommonFieldDissectorInfo {
+                        display_name: format!(
+                            "Count({field_id})",
+                            field_id = match field_id.as_str() {
+                                "_payload_" => "Payload",
+                                _ => field_id,
+                            }
+                        ),
+                        abbr: format!("{field_id}_count"),
+                        bit_offset: *bit_offset,
+                        endian: ctx.scope.file.endianness.value,
+                    },
                     ftype,
-                    bit_offset: *bit_offset,
                     len: RuntimeLenInfo::fixed(BitLen(width * 8)),
-                    endian: ctx.scope.file.endianness.value,
                     validate_expr: None,
                     optional_field: None,
                 })
@@ -981,12 +965,14 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 let mut field_len = RuntimeLenInfo::empty();
                 field_len.add_len_field("_body__size".into(), BitLen(0));
                 Some(FieldDissectorInfo::Payload {
-                    display_name: String::from("Body"),
-                    abbr: "_body_".into(),
+                    common: CommonFieldDissectorInfo {
+                        display_name: String::from("Body"),
+                        abbr: "_body_".into(),
+                        bit_offset: *bit_offset,
+                        endian: ctx.scope.file.endianness.value,
+                    },
                     ftype,
-                    bit_offset: *bit_offset,
                     len: field_len,
-                    endian: ctx.scope.file.endianness.value,
                     children,
                 })
             }
@@ -1000,24 +986,28 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         .unwrap_or_default(),
                 );
                 Some(FieldDissectorInfo::Payload {
-                    display_name: String::from("Payload"),
-                    abbr: "_payload_".into(),
+                    common: CommonFieldDissectorInfo {
+                        display_name: String::from("Payload"),
+                        abbr: "_payload_".into(),
+                        bit_offset: *bit_offset,
+                        endian: ctx.scope.file.endianness.value,
+                    },
                     ftype: FType::from(self.annot.size),
-                    bit_offset: *bit_offset,
                     len: field_len,
-                    endian: ctx.scope.file.endianness.value,
                     children: vec![],
                 })
             }
             FieldDesc::FixedScalar { width, value } => {
                 ctx.num_fixed += 1;
                 Some(FieldDissectorInfo::Scalar {
-                    display_name: "Fixed value".into(),
-                    abbr: format!("_fixed_{}", ctx.num_fixed - 1),
+                    common: CommonFieldDissectorInfo {
+                        display_name: "Fixed value".into(),
+                        abbr: format!("_fixed_{}", ctx.num_fixed - 1),
+                        bit_offset: *bit_offset,
+                        endian: ctx.scope.file.endianness.value,
+                    },
                     ftype: FType::from(self.annot.size),
-                    bit_offset: *bit_offset,
                     len: RuntimeLenInfo::fixed(BitLen(*width)),
-                    endian: ctx.scope.file.endianness.value,
                     validate_expr: Some(format!("value == {value}")),
                     optional_field: None,
                 })
@@ -1027,12 +1017,14 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 let referenced_enum = ctx.scope.typedef[enum_id].to_dissector_info(ctx.scope);
                 let ftype = FType::from(self.annot.size);
                 Some(FieldDissectorInfo::Scalar {
-                    display_name: format!("Fixed value: {tag_id}"),
-                    abbr: format!("_fixed_{}", ctx.num_fixed - 1),
+                    common: CommonFieldDissectorInfo {
+                        display_name: format!("Fixed value: {tag_id}"),
+                        abbr: format!("_fixed_{}", ctx.num_fixed - 1),
+                        bit_offset: *bit_offset,
+                        endian: ctx.scope.file.endianness.value,
+                    },
                     ftype,
-                    bit_offset: *bit_offset,
                     len: referenced_enum.decl_len(),
-                    endian: ctx.scope.file.endianness.value,
                     validate_expr: Some(format!(r#"{enum_id}_enum:match("{tag_id}", value)"#)),
                     optional_field: None,
                 })
@@ -1040,12 +1032,14 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
             FieldDesc::Reserved { width } => {
                 ctx.num_reserved += 1;
                 Some(FieldDissectorInfo::Scalar {
-                    display_name: String::from("Reserved"),
-                    abbr: format!("_reserved_{}", ctx.num_reserved - 1),
+                    common: CommonFieldDissectorInfo {
+                        display_name: String::from("Reserved"),
+                        abbr: format!("_reserved_{}", ctx.num_reserved - 1),
+                        bit_offset: *bit_offset,
+                        endian: ctx.scope.file.endianness.value,
+                    },
                     ftype: FType(Some(BitLen(*width))),
-                    bit_offset: *bit_offset,
                     len: RuntimeLenInfo::fixed(BitLen(*width)),
-                    endian: ctx.scope.file.endianness.value,
                     validate_expr: None,
                     optional_field: None,
                 })
@@ -1058,8 +1052,12 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 size,
             } => match (width, type_id) {
                 (None, Some(type_id)) => Some(FieldDissectorInfo::TypedefArray {
-                    name: id.clone(),
-                    abbr: id.clone(),
+                    common: CommonFieldDissectorInfo {
+                        display_name: id.clone(),
+                        abbr: id.clone(),
+                        bit_offset: *bit_offset,
+                        endian: ctx.scope.file.endianness.value,
+                    },
                     decl: Box::new(
                         ctx.scope
                             .typedef
@@ -1068,31 +1066,38 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                             .expect("Unresolved typedef")
                             .to_dissector_info(ctx.scope),
                     ),
-                    size_modifier: size_modifier.clone(),
-                    count: *size,
-                    endian: ctx.scope.file.endianness.value,
-                    pad_to_size: None,
+                    array_info: ArrayFieldDissectorInfo {
+                        size_modifier: size_modifier.clone(),
+                        count: *size,
+                        pad_to_size: None,
+                    },
                 }),
                 (Some(width), None) => Some(FieldDissectorInfo::ScalarArray {
-                    display_name: id.clone(),
-                    abbr: id.clone(),
-                    count: *size,
-                    size_modifier: size_modifier.clone(),
-                    endian: ctx.scope.file.endianness.value,
+                    common: CommonFieldDissectorInfo {
+                        display_name: id.clone(),
+                        abbr: id.clone(),
+                        bit_offset: BitLen::default(),
+                        endian: ctx.scope.file.endianness.value,
+                    },
+                    array_info: ArrayFieldDissectorInfo {
+                        count: *size,
+                        size_modifier: size_modifier.clone(),
+                        pad_to_size: None,
+                    },
                     ftype: FType(Some(BitLen(*width))),
-                    bit_offset: BitLen::default(),
                     item_len: BitLen(*width),
-                    pad_to_size: None,
                 }),
                 _ => unreachable!(),
             },
             FieldDesc::Scalar { id, width } => Some(FieldDissectorInfo::Scalar {
-                display_name: String::from(id),
-                abbr: id.into(),
+                common: CommonFieldDissectorInfo {
+                    display_name: String::from(id),
+                    abbr: id.into(),
+                    bit_offset: *bit_offset,
+                    endian: ctx.scope.file.endianness.value,
+                },
                 ftype: FType(Some(BitLen(*width))),
-                bit_offset: *bit_offset,
                 len: RuntimeLenInfo::fixed(BitLen(*width)),
-                endian: ctx.scope.file.endianness.value,
                 validate_expr: None,
                 optional_field: ctx.optional_decl.get(id).cloned(),
             }),
@@ -1104,12 +1109,14 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                 ctx.optional_decl
                     .insert(optional_field_id.clone(), (id.clone(), *set_value));
                 Some(FieldDissectorInfo::Scalar {
-                    display_name: String::from(id),
-                    abbr: id.into(),
+                    common: CommonFieldDissectorInfo {
+                        display_name: String::from(id),
+                        abbr: id.into(),
+                        bit_offset: *bit_offset,
+                        endian: ctx.scope.file.endianness.value,
+                    },
                     ftype: FType::from(self.annot.size),
-                    bit_offset: *bit_offset,
                     len: RuntimeLenInfo::fixed(BitLen(1)),
-                    endian: ctx.scope.file.endianness.value,
                     validate_expr: None,
                     optional_field: None,
                 })
@@ -1123,10 +1130,13 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     .expect("Unresolved typedef")
                     .to_dissector_info(ctx.scope);
                 Some(FieldDissectorInfo::Typedef {
-                    name: id.into(),
-                    abbr: id.into(),
+                    common: CommonFieldDissectorInfo {
+                        display_name: id.into(),
+                        abbr: id.into(),
+                        bit_offset: *bit_offset,
+                        endian: ctx.scope.file.endianness.value,
+                    },
                     decl: Box::new(dissector_info),
-                    endian: ctx.scope.file.endianness.value,
                     optional_field: ctx.optional_decl.get(id).cloned(),
                 })
             }
