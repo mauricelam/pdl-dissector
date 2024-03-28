@@ -1226,7 +1226,7 @@ pub fn run(
         if target_packet == "_all_" {
             for decl in analyzed_file.declarations.iter() {
                 if matches!(decl.desc, DeclDesc::Packet { .. }) {
-                    generate_for_decl(&target_packet, decl, &scope, writer)?;
+                    generate_for_decl(decl.id().unwrap(), decl, &scope, writer)?;
                 }
             }
         } else {
@@ -1255,7 +1255,6 @@ mod tests {
     use crate::{fakes::wireshark_lua, run, Args};
 
     #[test]
-    #[ignore] // TODO: Fix
     fn test_bluetooth_hci() -> anyhow::Result<()> {
         let args = Args {
             pdl_file: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
