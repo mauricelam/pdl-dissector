@@ -11,6 +11,5 @@ Code in this project starts at phase 4
 5. Phase 5 takes those `DissectorInfo` instances and generate the lua code from it.
 
 ## TODO
-- [ ] Set up integration test with tshark
 - [ ] A way to specify how to add to DissectorTable
 - [ ] Extract comments from the PDL file and put them in the ProtoField.descr field.

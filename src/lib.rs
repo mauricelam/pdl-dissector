@@ -6,6 +6,7 @@ mod len_info;
 pub mod pdml;
 mod utils;
 
+use ::indent_write::io::IndentWriter;
 use codespan_reporting::diagnostic::Diagnostic;
 use diagnostics::Diagnostics;
 use indent_write::IoWriteExt;
@@ -273,7 +274,7 @@ impl DeclExt for Decl<analyzer::ast::Annotation> {
                     },
                     children: scope
                         .iter_children(self)
-                        .map(|child| child.to_dissector_info(scope)) // TODO: the prefix will be wrong?
+                        .map(|child| child.to_dissector_info(scope))
                         .collect::<Vec<_>>(),
                     constraints: self
                         .constraints()
@@ -683,28 +684,9 @@ impl FieldDissectorInfo {
                     size_modifier,
                     pad_to_size,
                 } = array_info;
-                let count = count.unwrap_or(65536); // Cap at 65536 to avoid infinite loop
-                writedoc!(
-                    writer,
-                    r#"
-                    -- {self:?}
-                    local count = nil_coalesce(field_values[path .. ".{display_name}_count"], {count})
-                    local len_limit = field_values[path .. ".{display_name}_size"]{size_modifier}
-                    local initial_i = i
-                    for j=1,count do
-                        if len_limit ~= nil and i - initial_i >= len_limit then break end
-                        if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
-                    "#,
-                    size_modifier = size_modifier.as_deref().unwrap_or_default(),
-                )?;
-                self.write_typedef_dissect(
-                    &mut writer.indent(),
-                    decl,
-                    display_name,
-                    abbr,
-                    common.endian,
-                )?;
-                writeln!(writer, r#"end"#)?;
+                self.write_array_dissect(writer, abbr, count, size_modifier, |w| {
+                    self.write_typedef_dissect(w, decl, display_name, abbr, common.endian)
+                })?;
                 if let Some(octet_size) = pad_to_size {
                     writedoc!(
                         writer,
@@ -720,7 +702,6 @@ impl FieldDissectorInfo {
                 common,
                 item_len,
                 array_info,
-                ftype: _,
                 ..
             } => {
                 let abbr = &common.abbr;
@@ -729,22 +710,9 @@ impl FieldDissectorInfo {
                     size_modifier,
                     pad_to_size: _,
                 } = array_info;
-                let count = count.unwrap_or(65536); // Cap at 65536 to avoid infinite loop
-                writedoc!(
-                    writer,
-                    r#"
-                    -- {self:?}
-                    local count = nil_coalesce(field_values[path .. ".{abbr}_count"], {count})
-                    local len_limit = field_values[path .. ".{abbr}_size"]{size_modifier}
-                    local initial_i = i
-                    for j=1,count do
-                        if len_limit ~= nil and i - initial_i >= len_limit then break end
-                        if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
-                    "#,
-                    size_modifier = size_modifier.as_deref().unwrap_or_default(),
-                )?;
-                self.write_scalar_dissect(&mut writer.indent(), abbr, &[], None)?;
-                writeln!(writer, r#"end"#)?;
+                self.write_array_dissect(writer, abbr, count, size_modifier, |w| {
+                    self.write_scalar_dissect(w, abbr, &[], None)
+                })?;
             }
         }
         Ok(())
@@ -874,6 +842,33 @@ impl FieldDissectorInfo {
         }
         Ok(())
     }
+
+    fn write_array_dissect<W: std::io::Write>(
+        &self,
+        writer: &mut W,
+        abbr: &str,
+        count: &Option<usize>,
+        size_modifier: &Option<String>,
+        write_item_dissect: impl Fn(&mut IndentWriter<&mut W>) -> Result<(), std::io::Error>,
+    ) -> Result<(), std::io::Error> {
+        writedoc!(
+            writer,
+            r#"
+            -- {self:?}
+            local count = nil_coalesce(field_values[path .. ".{abbr}_count"], {count})
+            local len_limit = field_values[path .. ".{abbr}_size"]{size_modifier}
+            local initial_i = i
+            for j=1,count do
+                if len_limit ~= nil and i - initial_i >= len_limit then break end
+                if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
+            "#,
+            count = count.unwrap_or(65536), // Cap at 65536 to avoid infinite loop
+            size_modifier = size_modifier.as_deref().unwrap_or_default(),
+        )?;
+        write_item_dissect(&mut writer.indent())?;
+        writeln!(writer, "end")?;
+        Ok(())
+    }
 }
 
 impl FieldExt for Field<analyzer::ast::Annotation> {
@@ -954,7 +949,12 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     optional_field: None,
                 })
             }
-            FieldDesc::ElementSize { field_id, width } => todo!(),
+            FieldDesc::ElementSize { .. } => {
+                // This `_elementsize_` field is undocumented (in
+                // https://github.com/google/pdl/blob/main/doc/reference.md) and untested in the PDL
+                // repo. Ignore it for now.
+                unimplemented!()
+            }
             FieldDesc::Body => {
                 let children = ctx
                     .scope
