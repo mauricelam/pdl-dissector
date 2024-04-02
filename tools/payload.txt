@@ -53,8 +53,7 @@ I2019-01-01 00:00:00
 00000000: 07 c0 40 80 c0
 
 # Type = Size_Brew, pot: 18, size: 2, additions = [Rum, Custom(24)]
-# Extra unrecognized byte: 00
-# TODO: extra 00 byte at the end should trigger warning
+# Warning: Extra unrecognized byte: 00
 I2019-01-01 00:00:00
 00000000: 08 12 02 0b 18 00
 
@@ -63,7 +62,7 @@ I2019-01-01 00:00:00
 00000000: 09 88
 
 # Type = PayloadWithSizeModifier, size = 1 (+2), additions = [Cream, Whisky, Custom(20)]
-# Extra unrecognized byte: 00
+# Warning: Extra unrecognized byte: 00
 I2019-01-01 00:00:00
 00000000: 0a 01 01 0a 14 00
 

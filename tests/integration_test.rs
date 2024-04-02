@@ -81,7 +81,12 @@ fn golden_test() -> anyhow::Result<()> {
                 "  ...0 0000 010. .... = b: 2",
                 "  ...0 11.. = c: 3",
                 "  .... ..10 0... .... = d: 4",
-                "  .101 .... = e: 5"
+                "  .101 .... = e: 5",
+                "Expert Info (Warning/Malformed): Error: 4 undissected bits remaining",
+                "  Error: 4 undissected bits remaining",
+                "  Message: Error: 4 undissected bits remaining",
+                "  Severity level: Warning",
+                "  Group: Malformed",
             ],
             vec!["type: Checksum (4)", "ChecksumPacket", "  a: 1", "  b: 2", "  crc: 0x3412"],
             vec![
@@ -126,6 +131,11 @@ fn golden_test() -> anyhow::Result<()> {
                     "  ..00 0000 0100 0000 1000 0000 11.. .... = Payload: {}",
                     0x010203
                 ),
+                "Expert Info (Warning/Malformed): Error: 6 undissected bits remaining",
+                "  Error: 6 undissected bits remaining",
+                "  Message: Error: 6 undissected bits remaining",
+                "  Severity level: Warning",
+                "  Group: Malformed",
             ],
             vec![
                 "type: Size_Array (8)",
@@ -134,6 +144,11 @@ fn golden_test() -> anyhow::Result<()> {
                 "  Size(additions): 2",
                 "  additions: Alcoholic: Rum (11)",
                 "  additions: Custom (24)",
+                "Expert Info (Warning/Malformed): Error: 1 undissected bytes remaining",
+                "  Error: 1 undissected bytes remaining",
+                "  Message: Error: 1 undissected bytes remaining",
+                "  Severity level: Warning",
+                "  Group: Malformed",
             ],
             vec![
                 "type: InheritanceWithoutConstraint (9)",
@@ -148,6 +163,11 @@ fn golden_test() -> anyhow::Result<()> {
                 "  additions: NonAlcoholic: Cream (1)",
                 "  additions: Alcoholic: Whisky (10)",
                 "  additions: Custom (20)",
+                "Expert Info (Warning/Malformed): Error: 1 undissected bytes remaining",
+                "  Error: 1 undissected bytes remaining",
+                "  Message: Error: 1 undissected bytes remaining",
+                "  Severity level: Warning",
+                "  Group: Malformed",
             ],
             vec![
                 "type: Fixed (11)",
@@ -206,6 +226,11 @@ fn golden_test() -> anyhow::Result<()> {
                 "type: Reserved (13)",
                 "Reserved_DeloreanCoffee",
                 "  0000 0001 0000 0010 0000 .... = Reserved: 4128",
+                "Expert Info (Warning/Malformed): Error: 4 undissected bits remaining",
+                "  Error: 4 undissected bits remaining",
+                "  Message: Error: 4 undissected bits remaining",
+                "  Severity level: Warning",
+                "  Group: Malformed",
             ],
             vec![
                 "type: Optional (14)",
@@ -244,6 +269,11 @@ fn golden_test() -> anyhow::Result<()> {
                 "  001. .... = enum1: A (1)",
                 "  ...0 10.. = enum2: B (2)",
                 "  .... ..01 1... .... = enum3: C (3)",
+                "Expert Info (Warning/Malformed): Error: 7 undissected bits remaining",
+                "  Error: 7 undissected bits remaining",
+                "  Message: Error: 7 undissected bits remaining",
+                "  Severity level: Warning",
+                "  Group: Malformed",
             ],
         ],
         top_levels

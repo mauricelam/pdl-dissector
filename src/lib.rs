@@ -140,7 +140,15 @@ impl DeclDissectorInfo {
                     function {name}_protocol.dissector(buffer, pinfo, tree)
                         pinfo.cols.protocol = "{name}"
                         local subtree = tree:add({name}_protocol, buffer(), "{name}")
-                        {name}_dissect(buffer, pinfo, subtree, {name}_protocol_fields_table, "{name}")
+                        local i = {name}_dissect(buffer, pinfo, subtree, {name}_protocol_fields_table, "{name}")
+                        if buffer(i):len() > 0 then
+                            local remaining_bytes = buffer:len() - i
+                            if math.floor(remaining_bytes) == remaining_bytes then
+                                subtree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: " .. remaining_bytes .. " undissected bytes remaining")
+                            else
+                                subtree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: " .. (remaining_bytes * 8) .. " undissected bits remaining")
+                            end
+                        end
                     end
                     {name}_protocol_fields({name}_protocol_fields_table, "{name}")
                     for name,field in pairs({name}_protocol_fields_table) do

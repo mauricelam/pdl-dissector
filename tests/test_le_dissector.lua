@@ -961,14 +961,14 @@ function Padding_PaddedCoffee_dissect(buffer, pinfo, tree, fields, path)
     local i = 0
     local field_values = {}
     -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "additions (Padded)", abbr: "additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: None, size_modifier: None, pad_to_size: Some(10) } }
-    local count = nil_coalesce(field_values[path .. ".additions (Padded)_count"], nil)
-    local len_limit = field_values[path .. ".additions (Padded)_size"]
+    local count = nil_coalesce(field_values[path .. ".additions_count"], nil)
+    local len_limit = field_values[path .. ".additions_size"]
     local initial_i = i
     for j=1,nil_coalesce(count, 65536) do
         if len_limit ~= nil and i - initial_i >= len_limit then break end
         if i >= buffer:len() then
             if count ~= nil and j <= count then
-                tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected " .. count .. " `additions` items but only found " .. (j - 1))
+                tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected " .. count .. " `additions (Padded)` items but only found " .. (j - 1))
             end
             break
         end
@@ -1216,7 +1216,15 @@ TopLevel_protocol_fields_table = {}
 function TopLevel_protocol.dissector(buffer, pinfo, tree)
     pinfo.cols.protocol = "TopLevel"
     local subtree = tree:add(TopLevel_protocol, buffer(), "TopLevel")
-    TopLevel_dissect(buffer, pinfo, subtree, TopLevel_protocol_fields_table, "TopLevel")
+    local i = TopLevel_dissect(buffer, pinfo, subtree, TopLevel_protocol_fields_table, "TopLevel")
+    if buffer(i):len() > 0 then
+        local remaining_bytes = buffer:len() - i
+        if math.floor(remaining_bytes) == remaining_bytes then
+            subtree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: " .. remaining_bytes .. " undissected bytes remaining")
+        else
+            subtree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: " .. (remaining_bytes * 8) .. " undissected bits remaining")
+        end
+    end
 end
 TopLevel_protocol_fields(TopLevel_protocol_fields_table, "TopLevel")
 for name,field in pairs(TopLevel_protocol_fields_table) do
