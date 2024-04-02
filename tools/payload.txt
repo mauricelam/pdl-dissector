@@ -35,6 +35,11 @@ I2019-01-01 00:00:00
 I2019-01-01 00:00:00
 00000000: 05 12 34 0A 01 16 1C
 
+# Type = Array, pots = [0x12, 0x34], additions = [Whisky(10)]
+# Warning: Expected two additions
+I2019-01-01 00:00:00
+00000000: 05 12 34 0A
+
 # Type = GroupConstraint, s.a = 42
 I2019-01-01 00:00:00
 00000000: 06 2a 00

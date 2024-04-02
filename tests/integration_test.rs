@@ -94,6 +94,18 @@ fn golden_test() -> anyhow::Result<()> {
                 "  extra_additions: Custom (22)",
                 "  extra_additions: Custom (28)",
             ],
+            vec![
+                "type: Array (5)",
+                "Array_Brew",
+                "  pots: 18",
+                "  pots: 52",
+                "  additions: Alcoholic: Whisky (10)",
+                "  Expert Info (Warning/Malformed): Error: Expected 2 `additions` items but only found 1",
+                "    Error: Expected 2 `additions` items but only found 1",
+                "    Message: Error: Expected 2 `additions` items but only found 1",
+                "    Severity level: Warning",
+                "    Group: Malformed",
+            ],
             vec!["type: GroupConstraint (6)", "GroupConstraint_Packet", "  s", "    Fixed value: 42",],
             vec![
                 "type: GroupConstraint (6)",

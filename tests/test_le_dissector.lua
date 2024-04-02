@@ -180,7 +180,7 @@ function nil_coalesce(a, b)
 end
 
 -- End Utils section
-local PacketType_enum = ProtoEnum:new()
+PacketType_enum = ProtoEnum:new()
 PacketType_enum:define("Simple", 0)
 PacketType_enum:define("Enum", 1)
 PacketType_enum:define("Group", 2)
@@ -340,7 +340,7 @@ end
 function SimplePacket_match_constraints(field_values, path)
     return PacketType_enum:match("Simple", field_values[path .. ".type"])
 end
-local Enum_CoffeeAddition_enum = ProtoEnum:new()
+Enum_CoffeeAddition_enum = ProtoEnum:new()
 Enum_CoffeeAddition_enum:define("Empty", 0)
 Enum_CoffeeAddition_enum:define("NonAlcoholic: Cream", 1)
 Enum_CoffeeAddition_enum:define("NonAlcoholic: Vanilla", 2)
@@ -584,9 +584,14 @@ function Array_Brew_dissect(buffer, pinfo, tree, fields, path)
     local count = nil_coalesce(field_values[path .. ".pots_count"], 2)
     local len_limit = field_values[path .. ".pots_size"]
     local initial_i = i
-    for j=1,count do
+    for j=1,nil_coalesce(count, 65536) do
         if len_limit ~= nil and i - initial_i >= len_limit then break end
-        if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
+        if i >= buffer:len() then
+            if count ~= nil and j <= count then
+                tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected " .. count .. " `pots` items but only found " .. (j - 1))
+            end
+            break
+        end
         -- ScalarArray { common: CommonFieldDissectorInfo { display_name: "pots", abbr: "pots", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(8))), item_len: BitLen(8), array_info: ArrayFieldDissectorInfo { count: Some(2), size_modifier: None, pad_to_size: None } }
         local field_len = enforce_len_limit(sum_or_nil(8 / 8), buffer(i):len(), tree)
         subtree, field_values[path .. ".pots"], bitlen = fields[path .. ".pots"]:dissect(tree, buffer(i), field_len)
@@ -597,9 +602,14 @@ function Array_Brew_dissect(buffer, pinfo, tree, fields, path)
     local count = nil_coalesce(field_values[path .. ".additions_count"], 2)
     local len_limit = field_values[path .. ".additions_size"]
     local initial_i = i
-    for j=1,count do
+    for j=1,nil_coalesce(count, 65536) do
         if len_limit ~= nil and i - initial_i >= len_limit then break end
-        if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
+        if i >= buffer:len() then
+            if count ~= nil and j <= count then
+                tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected " .. count .. " `additions` items but only found " .. (j - 1))
+            end
+            break
+        end
         -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "additions", abbr: "additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: Some(2), size_modifier: None, pad_to_size: None } }
         local field_len = enforce_len_limit(math.ceil(sum_or_nil(8 / 8)), buffer(i):len(), tree)
         subtree, field_values[path .. ".additions"], bitlen = fields[path .. ".additions"]:dissect(tree, buffer(i), field_len)
@@ -609,12 +619,17 @@ function Array_Brew_dissect(buffer, pinfo, tree, fields, path)
         i = i + bitlen / 8
     end
     -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "extra_additions", abbr: "extra_additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: None, size_modifier: None, pad_to_size: None } }
-    local count = nil_coalesce(field_values[path .. ".extra_additions_count"], 65536)
+    local count = nil_coalesce(field_values[path .. ".extra_additions_count"], nil)
     local len_limit = field_values[path .. ".extra_additions_size"]
     local initial_i = i
-    for j=1,count do
+    for j=1,nil_coalesce(count, 65536) do
         if len_limit ~= nil and i - initial_i >= len_limit then break end
-        if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
+        if i >= buffer:len() then
+            if count ~= nil and j <= count then
+                tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected " .. count .. " `extra_additions` items but only found " .. (j - 1))
+            end
+            break
+        end
         -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "extra_additions", abbr: "extra_additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: None, size_modifier: None, pad_to_size: None } }
         local field_len = enforce_len_limit(math.ceil(sum_or_nil(8 / 8)), buffer(i):len(), tree)
         subtree, field_values[path .. ".extra_additions"], bitlen = fields[path .. ".extra_additions"]:dissect(tree, buffer(i), field_len)
@@ -716,7 +731,7 @@ end
 function Size_Parent_match_constraints(field_values, path)
     return PacketType_enum:match("Size_Parent", field_values[path .. ".type"])
 end
-local Size_16bitEnum_enum = ProtoEnum:new()
+Size_16bitEnum_enum = ProtoEnum:new()
 Size_16bitEnum_enum:define("A", 1)
 Size_16bitEnum_enum:define("B", 2)
 Size_16bitEnum_enum:define("Custom", {3, 5})
@@ -760,12 +775,17 @@ function Size_Brew_dissect(buffer, pinfo, tree, fields, path)
 
     i = i + bitlen / 8
     -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "additions", abbr: "additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: None, size_modifier: None, pad_to_size: None } }
-    local count = nil_coalesce(field_values[path .. ".additions_count"], 65536)
+    local count = nil_coalesce(field_values[path .. ".additions_count"], nil)
     local len_limit = field_values[path .. ".additions_size"]
     local initial_i = i
-    for j=1,count do
+    for j=1,nil_coalesce(count, 65536) do
         if len_limit ~= nil and i - initial_i >= len_limit then break end
-        if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
+        if i >= buffer:len() then
+            if count ~= nil and j <= count then
+                tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected " .. count .. " `additions` items but only found " .. (j - 1))
+            end
+            break
+        end
         -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "additions", abbr: "additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: None, size_modifier: None, pad_to_size: None } }
         local field_len = enforce_len_limit(math.ceil(sum_or_nil(8 / 8)), buffer(i):len(), tree)
         subtree, field_values[path .. ".additions"], bitlen = fields[path .. ".additions"]:dissect(tree, buffer(i), field_len)
@@ -859,12 +879,17 @@ function PayloadWithSizeModifier_dissect(buffer, pinfo, tree, fields, path)
 
     i = i + bitlen / 8
     -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "additions", abbr: "additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: None, size_modifier: Some("+2"), pad_to_size: None } }
-    local count = nil_coalesce(field_values[path .. ".additions_count"], 65536)
+    local count = nil_coalesce(field_values[path .. ".additions_count"], nil)
     local len_limit = field_values[path .. ".additions_size"]+2
     local initial_i = i
-    for j=1,count do
+    for j=1,nil_coalesce(count, 65536) do
         if len_limit ~= nil and i - initial_i >= len_limit then break end
-        if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
+        if i >= buffer:len() then
+            if count ~= nil and j <= count then
+                tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected " .. count .. " `additions` items but only found " .. (j - 1))
+            end
+            break
+        end
         -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "additions", abbr: "additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: None, size_modifier: Some("+2"), pad_to_size: None } }
         local field_len = enforce_len_limit(math.ceil(sum_or_nil(8 / 8)), buffer(i):len(), tree)
         subtree, field_values[path .. ".additions"], bitlen = fields[path .. ".additions"]:dissect(tree, buffer(i), field_len)
@@ -936,12 +961,17 @@ function Padding_PaddedCoffee_dissect(buffer, pinfo, tree, fields, path)
     local i = 0
     local field_values = {}
     -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "additions (Padded)", abbr: "additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: None, size_modifier: None, pad_to_size: Some(10) } }
-    local count = nil_coalesce(field_values[path .. ".additions (Padded)_count"], 65536)
+    local count = nil_coalesce(field_values[path .. ".additions (Padded)_count"], nil)
     local len_limit = field_values[path .. ".additions (Padded)_size"]
     local initial_i = i
-    for j=1,count do
+    for j=1,nil_coalesce(count, 65536) do
         if len_limit ~= nil and i - initial_i >= len_limit then break end
-        if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
+        if i >= buffer:len() then
+            if count ~= nil and j <= count then
+                tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected " .. count .. " `additions` items but only found " .. (j - 1))
+            end
+            break
+        end
         -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "additions (Padded)", abbr: "additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: None, size_modifier: None, pad_to_size: Some(10) } }
         local field_len = enforce_len_limit(math.ceil(sum_or_nil(8 / 8)), buffer(i):len(), tree)
         subtree, field_values[path .. ".additions (Padded)"], bitlen = fields[path .. ".additions"]:dissect(tree, buffer(i), field_len)
@@ -1005,7 +1035,7 @@ end
 function Optional_Cream_match_constraints(field_values, path)
     return true
 end
-local Optional_Alcohol_enum = ProtoEnum:new()
+Optional_Alcohol_enum = ProtoEnum:new()
 Optional_Alcohol_enum:define("WHISKY", 0)
 Optional_Alcohol_enum:define("COGNAC", 1)
 function Optional_CoffeeWithAdditions_protocol_fields(fields, path)
@@ -1117,7 +1147,7 @@ end
 function Optional_CoffeeWithAdditions_match_constraints(field_values, path)
     return PacketType_enum:match("Optional", field_values[path .. ".type"])
 end
-local UnalignedEnum_enum = ProtoEnum:new()
+UnalignedEnum_enum = ProtoEnum:new()
 UnalignedEnum_enum:define("A", 1)
 UnalignedEnum_enum:define("B", 2)
 UnalignedEnum_enum:define("C", 3)
@@ -1182,7 +1212,7 @@ function UnalignedEnum_packet_match_constraints(field_values, path)
 end
 -- Protocol definition for "TopLevel"
 TopLevel_protocol = Proto("TopLevel",  "TopLevel")
-local TopLevel_protocol_fields_table = {}
+TopLevel_protocol_fields_table = {}
 function TopLevel_protocol.dissector(buffer, pinfo, tree)
     pinfo.cols.protocol = "TopLevel"
     local subtree = tree:add(TopLevel_protocol, buffer(), "TopLevel")
@@ -1192,5 +1222,4 @@ TopLevel_protocol_fields(TopLevel_protocol_fields_table, "TopLevel")
 for name,field in pairs(TopLevel_protocol_fields_table) do
     TopLevel_protocol.fields[name] = field.field
 end
-local tcp_port = DissectorTable.get("tcp.port")
-tcp_port:add(8000, TopLevel_protocol)
+DissectorTable.get("tcp.port"):add(8000, TopLevel_protocol)

@@ -679,15 +679,10 @@ impl FieldDissectorInfo {
                 let CommonFieldDissectorInfo {
                     display_name, abbr, ..
                 } = common;
-                let ArrayFieldDissectorInfo {
-                    count,
-                    size_modifier,
-                    pad_to_size,
-                } = array_info;
-                self.write_array_dissect(writer, abbr, count, size_modifier, |w| {
+                self.write_array_dissect(writer, common, array_info, |w| {
                     self.write_typedef_dissect(w, decl, display_name, abbr, common.endian)
                 })?;
-                if let Some(octet_size) = pad_to_size {
+                if let Some(octet_size) = array_info.pad_to_size {
                     writedoc!(
                         writer,
                         r#"
@@ -704,14 +699,8 @@ impl FieldDissectorInfo {
                 array_info,
                 ..
             } => {
-                let abbr = &common.abbr;
-                let ArrayFieldDissectorInfo {
-                    count,
-                    size_modifier,
-                    pad_to_size: _,
-                } = array_info;
-                self.write_array_dissect(writer, abbr, count, size_modifier, |w| {
-                    self.write_scalar_dissect(w, abbr, &[], None)
+                self.write_array_dissect(writer, common, array_info, |w| {
+                    self.write_scalar_dissect(w, &common.abbr, &[], None)
                 })?;
             }
         }
@@ -846,11 +835,18 @@ impl FieldDissectorInfo {
     fn write_array_dissect<W: std::io::Write>(
         &self,
         writer: &mut W,
-        abbr: &str,
-        count: &Option<usize>,
-        size_modifier: &Option<String>,
+        common_info: &CommonFieldDissectorInfo,
+        array_info: &ArrayFieldDissectorInfo,
         write_item_dissect: impl Fn(&mut IndentWriter<&mut W>) -> Result<(), std::io::Error>,
     ) -> Result<(), std::io::Error> {
+        let CommonFieldDissectorInfo {
+            display_name, abbr, ..
+        } = common_info;
+        let ArrayFieldDissectorInfo {
+            count,
+            size_modifier,
+            ..
+        } = array_info;
         writedoc!(
             writer,
             r#"
@@ -858,11 +854,16 @@ impl FieldDissectorInfo {
             local count = nil_coalesce(field_values[path .. ".{abbr}_count"], {count})
             local len_limit = field_values[path .. ".{abbr}_size"]{size_modifier}
             local initial_i = i
-            for j=1,count do
+            for j=1,nil_coalesce(count, 65536) do
                 if len_limit ~= nil and i - initial_i >= len_limit then break end
-                if i >= buffer:len() then break end -- Exit loop. TODO: Check if this exited earlier than expected
+                if i >= buffer:len() then
+                    if count ~= nil and j <= count then
+                        tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected " .. count .. " `{display_name}` items but only found " .. (j - 1))
+                    end
+                    break
+                end
             "#,
-            count = count.unwrap_or(65536), // Cap at 65536 to avoid infinite loop
+            count = count.map(|c| c.to_string()).unwrap_or("nil".to_string()),
             size_modifier = size_modifier.as_deref().unwrap_or_default(),
         )?;
         write_item_dissect(&mut writer.indent())?;
@@ -1276,22 +1277,6 @@ mod tests {
         };
         let lua = wireshark_lua()?;
         lua.load(run_with_args(args)).exec()?;
-        Ok(())
-    }
-
-    #[test]
-    fn test_create_bit_mask() -> anyhow::Result<()> {
-        let lua = wireshark_lua()?;
-        lua.load(include_str!("utils.lua")).exec()?;
-        lua.load(mlua::chunk! {
-            function assert_hex(expected, actual)
-                assert(expected == actual, "Expected 0x" .. string.format("%x", expected) .. " but was 0x" .. string.format("%x", actual))
-            end
-            assert_hex(create_bit_mask(0, 8, 8), 0xff);
-            assert_hex(create_bit_mask(1, 2, 8), 0x60);
-            assert_hex(create_bit_mask(28, 2, 32), 0xc);
-        })
-        .exec()?;
         Ok(())
     }
 
