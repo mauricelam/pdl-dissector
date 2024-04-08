@@ -725,18 +725,6 @@ impl FieldDissectorInfo {
         validate_expr: Option<String>,
     ) -> std::io::Result<()> {
         let len_expr = self.len().to_lua_expr();
-        let validate = validate_expr.as_ref().map(|validate_expr| {
-            formatdoc!(
-                r#"
-                local value = field_values[path .. ".{abbr}"]
-                if not ({validate_expr}) then
-                    subtree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected `{validate_escaped}` where value=" .. tostring(value))
-                end
-                "#,
-                validate_escaped = validate_expr.replace('\\', "\\\\").replace('"', "\\\"")
-            )
-        })
-        .unwrap_or_default();
         writedoc!(
             writer,
             r#"
@@ -759,16 +747,28 @@ impl FieldDissectorInfo {
                     )
                 )
             }),
-            Some(|w: &mut dyn std::io::Write|
+            Some(|w: &mut dyn std::io::Write| {
                 writedoc!(
                     w,
                     r#"
                     subtree, field_values[path .. ".{abbr}"], bitlen = fields[path .. ".{abbr}"]:dissect(tree, buffer(i), field_len)
-                    {validate}
                     i = i + bitlen / 8
                     "#,
-                )
-            ))?;
+                )?;
+                if let Some(validate) = validate_expr.as_ref() {
+                    writedoc!(
+                        w,
+                        r#"
+                        local value = field_values[path .. ".{abbr}"]
+                        if not ({validate}) then
+                            subtree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected `{validate_escaped}` where value=" .. tostring(value))
+                        end
+                        "#,
+                        validate_escaped = validate.replace('\\', "\\\\").replace('"', "\\\"")
+                    )?;
+                }
+                Ok(())
+            }))?;
         Ok(())
     }
 
@@ -1208,14 +1208,14 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
 
 fn has_size_field(decl: &Decl<analyzer::ast::Annotation>, id: &str) -> bool {
     decl.fields().any(|field| match &field.desc {
-        FieldDesc::Size { field_id, width } => field_id == id,
+        FieldDesc::Size { field_id, .. } => field_id == id,
         _ => false,
     })
 }
 
 fn has_count_field(decl: &Decl<analyzer::ast::Annotation>, id: &str) -> bool {
     decl.fields().any(|field| match &field.desc {
-        FieldDesc::Count { field_id, width } => field_id == id,
+        FieldDesc::Count { field_id, .. } => field_id == id,
         _ => false,
     })
 }

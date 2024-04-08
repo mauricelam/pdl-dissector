@@ -311,7 +311,6 @@ function TopLevel_dissect(buffer, pinfo, tree, fields, path)
         i = i + dissected_len
     else
         subtree, field_values[path .. "._body_"], bitlen = fields[path .. "._body_"]:dissect(tree, buffer(i), field_len)
-
         i = i + bitlen / 8
     end
     return i
@@ -335,7 +334,6 @@ function SimplePacket_dissect(buffer, pinfo, tree, fields, path)
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "scalar_value", abbr: "scalar_value", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(64))), len: Bounded { referenced_fields: [], constant_factor: BitLen(64) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(8, buffer(i):len(), tree)
     subtree, field_values[path .. ".scalar_value"], bitlen = fields[path .. ".scalar_value"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     return i
 end
@@ -411,17 +409,14 @@ function Group_AskBrewHistory_dissect(buffer, pinfo, tree, fields, path)
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "pot", abbr: "pot", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(1, buffer(i):len(), tree)
     subtree, field_values[path .. ".pot"], bitlen = fields[path .. ".pot"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "offset", abbr: "offset", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(1, buffer(i):len(), tree)
     subtree, field_values[path .. ".offset"], bitlen = fields[path .. ".offset"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "limit", abbr: "limit", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(1, buffer(i):len(), tree)
     subtree, field_values[path .. ".limit"], bitlen = fields[path .. ".limit"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     return i
 end
@@ -477,27 +472,22 @@ function UnalignedPacket_dissect(buffer, pinfo, tree, fields, path)
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "a", abbr: "a", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(0.375, buffer(i):len(), tree)
     subtree, field_values[path .. ".a"], bitlen = fields[path .. ".a"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "b", abbr: "b", bit_offset: BitLen(3), endian: LittleEndian }, ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(1, buffer(i):len(), tree)
     subtree, field_values[path .. ".b"], bitlen = fields[path .. ".b"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "c", abbr: "c", bit_offset: BitLen(3), endian: LittleEndian }, ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(0.375, buffer(i):len(), tree)
     subtree, field_values[path .. ".c"], bitlen = fields[path .. ".c"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "d", abbr: "d", bit_offset: BitLen(6), endian: LittleEndian }, ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(0.375, buffer(i):len(), tree)
     subtree, field_values[path .. ".d"], bitlen = fields[path .. ".d"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "e", abbr: "e", bit_offset: BitLen(1), endian: LittleEndian }, ftype: FType(Some(BitLen(3))), len: Bounded { referenced_fields: [], constant_factor: BitLen(3) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(0.375, buffer(i):len(), tree)
     subtree, field_values[path .. ".e"], bitlen = fields[path .. ".e"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     return i
 end
@@ -534,12 +524,10 @@ function ChecksumPacket_dissect(buffer, pinfo, tree, fields, path)
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "a", abbr: "a", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(2, buffer(i):len(), tree)
     subtree, field_values[path .. ".a"], bitlen = fields[path .. ".a"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "b", abbr: "b", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(2, buffer(i):len(), tree)
     subtree, field_values[path .. ".b"], bitlen = fields[path .. ".b"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- Typedef { common: CommonFieldDissectorInfo { display_name: "crc", abbr: "crc", bit_offset: BitLen(0), endian: LittleEndian }, decl: Checksum { name: "CRC16", len: BitLen(16) }, optional_field: None }
     local field_len = enforce_len_limit(2, buffer(i):len(), tree)
@@ -593,7 +581,6 @@ function Array_Brew_dissect(buffer, pinfo, tree, fields, path)
         -- ScalarArray { common: CommonFieldDissectorInfo { display_name: "pots", abbr: "pots", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(8))), item_len: BitLen(8), array_info: ArrayFieldDissectorInfo { count: Some(2), size_modifier: None, pad_to_size: None, has_size_field: false, has_count_field: false } }
         local field_len = enforce_len_limit(1, buffer(i):len(), tree)
         subtree, field_values[path .. ".pots"], bitlen = fields[path .. ".pots"]:dissect(tree, buffer(i), field_len)
-
         i = i + bitlen / 8
     end
     -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "additions", abbr: "additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: Some(2), size_modifier: None, pad_to_size: None, has_size_field: false, has_count_field: false } }
@@ -643,12 +630,11 @@ function GroupConstraint_Struct_dissect(buffer, pinfo, tree, fields, path)
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "Fixed value", abbr: "_fixed_0", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, validate_expr: Some("value == 42"), optional_field: None }
     local field_len = enforce_len_limit(2, buffer(i):len(), tree)
     subtree, field_values[path .. "._fixed_0"], bitlen = fields[path .. "._fixed_0"]:dissect(tree, buffer(i), field_len)
+    i = i + bitlen / 8
     local value = field_values[path .. "._fixed_0"]
     if not (value == 42) then
         subtree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected `value == 42` where value=" .. tostring(value))
     end
-
-    i = i + bitlen / 8
     return i
 end
 function GroupConstraint_Struct_match_constraints(field_values, path)
@@ -703,12 +689,10 @@ function Size_Parent_dissect(buffer, pinfo, tree, fields, path)
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "Size(Payload)", abbr: "_payload__size", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(2))), len: Bounded { referenced_fields: [], constant_factor: BitLen(2) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(0.25, buffer(i):len(), tree)
     subtree, field_values[path .. "._payload__size"], bitlen = fields[path .. "._payload__size"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- Payload { common: CommonFieldDissectorInfo { display_name: "Payload", abbr: "_payload_", bit_offset: BitLen(2), endian: LittleEndian }, ftype: FType(None), len: Bounded { referenced_fields: ["_payload__size"], constant_factor: BitLen(0) }, children: [] }
     local field_len = enforce_len_limit(sum_or_nil(0, field_values[path .. "._payload__size"]), buffer(i):len(), tree)
     subtree, field_values[path .. "._payload_"], bitlen = fields[path .. "._payload_"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     return i
 end
@@ -751,17 +735,15 @@ function Size_Brew_dissect(buffer, pinfo, tree, fields, path)
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "pot", abbr: "pot", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(1, buffer(i):len(), tree)
     subtree, field_values[path .. ".pot"], bitlen = fields[path .. ".pot"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "Size(additions)", abbr: "additions_size", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(1, buffer(i):len(), tree)
     subtree, field_values[path .. ".additions_size"], bitlen = fields[path .. ".additions_size"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "additions", abbr: "additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: None, size_modifier: None, pad_to_size: None, has_size_field: true, has_count_field: false } }
     local initial_i = i
     if initial_i + field_values[path .. ".additions_size"] > buffer:len() then
-        tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Size field is greater than the number of remaining bytes for `additions`")
+        tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Size(additions) is greater than the number of remaining bytes")
     end
     while i < buffer:len() and i - initial_i < field_values[path .. ".additions_size"] do
         -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "additions", abbr: "additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: None, size_modifier: None, pad_to_size: None, has_size_field: true, has_count_field: false } }
@@ -799,7 +781,6 @@ function AbstractParent_dissect(buffer, pinfo, tree, fields, path)
         i = i + dissected_len
     else
         subtree, field_values[path .. "._body_"], bitlen = fields[path .. "._body_"]:dissect(tree, buffer(i), field_len)
-
         i = i + bitlen / 8
     end
     return i
@@ -823,7 +804,6 @@ function ChildWithoutConstraints_dissect(buffer, pinfo, tree, fields, path)
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "field", abbr: "field", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(1, buffer(i):len(), tree)
     subtree, field_values[path .. ".field"], bitlen = fields[path .. ".field"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     return i
 end
@@ -854,12 +834,11 @@ function PayloadWithSizeModifier_dissect(buffer, pinfo, tree, fields, path)
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "Size(additions)", abbr: "additions_size", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(1, buffer(i):len(), tree)
     subtree, field_values[path .. ".additions_size"], bitlen = fields[path .. ".additions_size"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "additions", abbr: "additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: None, size_modifier: Some("+2"), pad_to_size: None, has_size_field: true, has_count_field: false } }
     local initial_i = i
     if initial_i + field_values[path .. ".additions_size"]+2 > buffer:len() then
-        tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Size field is greater than the number of remaining bytes for `additions`")
+        tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Size(additions) is greater than the number of remaining bytes")
     end
     while i < buffer:len() and i - initial_i < field_values[path .. ".additions_size"]+2 do
         -- TypedefArray { common: CommonFieldDissectorInfo { display_name: "additions", abbr: "additions", bit_offset: BitLen(0), endian: LittleEndian }, decl: Enum { name: "Enum_CoffeeAddition", values: [Value(TagValue { id: "Empty", loc: SourceRange { .. }, value: 0 }), Range(TagRange { id: "NonAlcoholic", loc: SourceRange { .. }, range: 1..=9, tags: [TagValue { id: "Cream", loc: SourceRange { .. }, value: 1 }, TagValue { id: "Vanilla", loc: SourceRange { .. }, value: 2 }, TagValue { id: "Chocolate", loc: SourceRange { .. }, value: 3 }] }), Range(TagRange { id: "Alcoholic", loc: SourceRange { .. }, range: 10..=19, tags: [TagValue { id: "Whisky", loc: SourceRange { .. }, value: 10 }, TagValue { id: "Rum", loc: SourceRange { .. }, value: 11 }, TagValue { id: "Kahlua", loc: SourceRange { .. }, value: 12 }, TagValue { id: "Aquavit", loc: SourceRange { .. }, value: 13 }] }), Range(TagRange { id: "Custom", loc: SourceRange { .. }, range: 20..=29, tags: [] }), Other(TagOther { id: "Other", loc: SourceRange { .. } })], len: BitLen(8) }, array_info: ArrayFieldDissectorInfo { count: None, size_modifier: Some("+2"), pad_to_size: None, has_size_field: true, has_count_field: false } }
@@ -898,21 +877,19 @@ function Fixed_Teapot_dissect(buffer, pinfo, tree, fields, path)
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "Fixed value", abbr: "_fixed_0", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, validate_expr: Some("value == 42"), optional_field: None }
     local field_len = enforce_len_limit(1, buffer(i):len(), tree)
     subtree, field_values[path .. "._fixed_0"], bitlen = fields[path .. "._fixed_0"]:dissect(tree, buffer(i), field_len)
+    i = i + bitlen / 8
     local value = field_values[path .. "._fixed_0"]
     if not (value == 42) then
         subtree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected `value == 42` where value=" .. tostring(value))
     end
-
-    i = i + bitlen / 8
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "Fixed value: Empty", abbr: "_fixed_1", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, validate_expr: Some("Enum_CoffeeAddition_enum:match(\"Empty\", value)"), optional_field: None }
     local field_len = enforce_len_limit(1, buffer(i):len(), tree)
     subtree, field_values[path .. "._fixed_1"], bitlen = fields[path .. "._fixed_1"]:dissect(tree, buffer(i), field_len)
+    i = i + bitlen / 8
     local value = field_values[path .. "._fixed_1"]
     if not (Enum_CoffeeAddition_enum:match("Empty", value)) then
         subtree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected `Enum_CoffeeAddition_enum:match(\"Empty\", value)` where value=" .. tostring(value))
     end
-
-    i = i + bitlen / 8
     return i
 end
 function Fixed_Teapot_match_constraints(field_values, path)
@@ -967,7 +944,6 @@ function Reserved_DeloreanCoffee_dissect(buffer, pinfo, tree, fields, path)
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "Reserved", abbr: "_reserved_0", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(20))), len: Bounded { referenced_fields: [], constant_factor: BitLen(20) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(2.5, buffer(i):len(), tree)
     subtree, field_values[path .. "._reserved_0"], bitlen = fields[path .. "._reserved_0"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     return i
 end
@@ -990,7 +966,6 @@ function Optional_Cream_dissect(buffer, pinfo, tree, fields, path)
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "fat_percentage", abbr: "fat_percentage", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(8))), len: Bounded { referenced_fields: [], constant_factor: BitLen(8) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(1, buffer(i):len(), tree)
     subtree, field_values[path .. ".fat_percentage"], bitlen = fields[path .. ".fat_percentage"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     return i
 end
@@ -1063,28 +1038,23 @@ function Optional_CoffeeWithAdditions_dissect(buffer, pinfo, tree, fields, path)
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "want_sugar", abbr: "want_sugar", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(1))), len: Bounded { referenced_fields: [], constant_factor: BitLen(1) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(0.125, buffer(i):len(), tree)
     subtree, field_values[path .. ".want_sugar"], bitlen = fields[path .. ".want_sugar"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "want_cream", abbr: "want_cream", bit_offset: BitLen(1), endian: LittleEndian }, ftype: FType(Some(BitLen(1))), len: Bounded { referenced_fields: [], constant_factor: BitLen(1) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(0.125, buffer(i):len(), tree)
     subtree, field_values[path .. ".want_cream"], bitlen = fields[path .. ".want_cream"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "want_alcohol", abbr: "want_alcohol", bit_offset: BitLen(2), endian: LittleEndian }, ftype: FType(Some(BitLen(1))), len: Bounded { referenced_fields: [], constant_factor: BitLen(1) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(0.125, buffer(i):len(), tree)
     subtree, field_values[path .. ".want_alcohol"], bitlen = fields[path .. ".want_alcohol"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     -- Scalar { common: CommonFieldDissectorInfo { display_name: "Reserved", abbr: "_reserved_0", bit_offset: BitLen(3), endian: LittleEndian }, ftype: FType(Some(BitLen(5))), len: Bounded { referenced_fields: [], constant_factor: BitLen(5) }, validate_expr: None, optional_field: None }
     local field_len = enforce_len_limit(0.625, buffer(i):len(), tree)
     subtree, field_values[path .. "._reserved_0"], bitlen = fields[path .. "._reserved_0"]:dissect(tree, buffer(i), field_len)
-
     i = i + bitlen / 8
     if field_values[path .. ".want_sugar"] == 1 then
         -- Scalar { common: CommonFieldDissectorInfo { display_name: "sugar", abbr: "sugar", bit_offset: BitLen(0), endian: LittleEndian }, ftype: FType(Some(BitLen(16))), len: Bounded { referenced_fields: [], constant_factor: BitLen(16) }, validate_expr: None, optional_field: Some(("want_sugar", 1)) }
         local field_len = enforce_len_limit(2, buffer(i):len(), tree)
         subtree, field_values[path .. ".sugar"], bitlen = fields[path .. ".sugar"]:dissect(tree, buffer(i), field_len)
-
         i = i + bitlen / 8
     end
     if field_values[path .. ".want_cream"] == 1 then
