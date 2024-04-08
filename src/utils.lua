@@ -179,4 +179,6 @@ function nil_coalesce(a, b)
     end
 end
 
+ARRAY_MAX_COUNT = 65536
+
 -- End Utils section

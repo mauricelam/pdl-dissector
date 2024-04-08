@@ -82,12 +82,17 @@ impl RuntimeLenInfo {
                 referenced_fields,
                 constant_factor,
             } => {
-                let mut output_code = format!("sum_or_nil({constant_factor} / 8");
-                for field in referenced_fields {
-                    write!(output_code, r#", field_values[path .. ".{field}"]"#).unwrap();
+                let constant_bytes = constant_factor.0 as f64 / 8.;
+                if referenced_fields.is_empty() {
+                    constant_bytes.to_string()
+                } else {
+                    let mut output_code = format!("sum_or_nil({constant_bytes}");
+                    for field in referenced_fields {
+                        write!(output_code, r#", field_values[path .. ".{field}"]"#).unwrap();
+                    }
+                    write!(output_code, ")").unwrap();
+                    output_code
                 }
-                write!(output_code, ")").unwrap();
-                output_code
             }
             RuntimeLenInfo::Unbounded => "nil".into(),
         }

@@ -20,7 +20,7 @@ use pdl_compiler::{
         Tag, TagOther, TagRange, TagValue,
     },
 };
-use std::{collections::HashMap, io::Write as _, path::PathBuf};
+use std::{collections::HashMap, io::Write, path::PathBuf};
 use utils::{buffer_value_lua_function, lua_if_then_else};
 
 use crate::len_info::BitLen;
@@ -414,6 +414,8 @@ pub struct ArrayFieldDissectorInfo {
     count: Option<usize>,
     size_modifier: Option<String>,
     pad_to_size: Option<usize>,
+    has_size_field: bool,
+    has_count_field: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -855,25 +857,71 @@ impl FieldDissectorInfo {
             size_modifier,
             ..
         } = array_info;
+        if size_modifier.is_some() {
+            assert!(
+                array_info.has_size_field,
+                "Size modifier is defined but a size field is not found for `{abbr}`",
+                abbr = common_info.abbr,
+            );
+        }
+        if count.is_some() {
+            assert!(
+                !array_info.has_count_field,
+                "Count field is defined for `{abbr}`, but it has fixed item count",
+                abbr = common_info.abbr,
+            );
+        }
+        assert!(
+            !((count.is_some() || array_info.has_count_field) && array_info.has_size_field),
+            "Size and count cannot be specified for the same array `{abbr}`"
+        );
         writedoc!(
             writer,
             r#"
             -- {self:?}
-            local count = nil_coalesce(field_values[path .. ".{abbr}_count"], {count})
-            local len_limit = field_values[path .. ".{abbr}_size"]{size_modifier}
             local initial_i = i
-            for j=1,nil_coalesce(count, 65536) do
-                if len_limit ~= nil and i - initial_i >= len_limit then break end
-                if i >= buffer:len() then
-                    if count ~= nil and j <= count then
-                        tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected " .. count .. " `{display_name}` items but only found " .. (j - 1))
-                    end
-                    break
-                end
             "#,
-            count = count.map(|c| c.to_string()).unwrap_or("nil".to_string()),
-            size_modifier = size_modifier.as_deref().unwrap_or_default(),
         )?;
+        if array_info.has_count_field {
+            writedoc!(
+                writer,
+                r#"
+                for j=1,field_values[path .. ".{abbr}_count"] do
+                    -- Warn if there isn't enough elements to fit the expected count
+                    if i >= buffer:len() and j <= {count} then
+                        tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected " .. {count} .. " `{display_name}` items but only found " .. (j - 1))
+                        break
+                    end
+                "#,
+                count = format!(r#"field_values[path .. ".{abbr}_count"]"#),
+            )?;
+        } else if let Some(count) = count {
+            writedoc!(
+                writer,
+                r#"
+                for j=1,{count} do
+                    -- Warn if there isn't enough elements to fit the expected count
+                    if i >= buffer:len() and j <= {count} then
+                        tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Expected {count} `{display_name}` items but only found " .. (j - 1))
+                        break
+                    end
+                "#
+            )?;
+        } else if array_info.has_size_field {
+            // Check that the array doesn't exceed the size() field
+            writedoc!(
+                writer,
+                r#"
+                if initial_i + field_values[path .. ".{abbr}_size"]{size_modifier} > buffer:len() then
+                    tree:add_expert_info(PI_MALFORMED, PI_WARN, "Error: Size({display_name}) is greater than the number of remaining bytes")
+                end
+                while i < buffer:len() and i - initial_i < field_values[path .. ".{abbr}_size"]{size_modifier} do
+                "#,
+                size_modifier = size_modifier.as_deref().unwrap_or_default(),
+            )?;
+        } else {
+            writedoc!(writer, r#"while i < buffer:len() do"#)?;
+        }
         write_item_dissect(&mut writer.indent())?;
         writeln!(writer, "end")?;
         Ok(())
@@ -1079,6 +1127,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         size_modifier: size_modifier.clone(),
                         count: *size,
                         pad_to_size: None,
+                        has_size_field: has_size_field(decl, id),
+                        has_count_field: has_count_field(decl, id),
                     },
                 }),
                 (Some(width), None) => Some(FieldDissectorInfo::ScalarArray {
@@ -1092,6 +1142,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         count: *size,
                         size_modifier: size_modifier.clone(),
                         pad_to_size: None,
+                        has_size_field: has_size_field(decl, id),
+                        has_count_field: has_count_field(decl, id),
                     },
                     ftype: FType(Some(BitLen(*width))),
                     item_len: BitLen(*width),
@@ -1152,6 +1204,20 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
             FieldDesc::Group { .. } => unreachable!(), // Groups are inlined by the time they reach here
         }
     }
+}
+
+fn has_size_field(decl: &Decl<analyzer::ast::Annotation>, id: &str) -> bool {
+    decl.fields().any(|field| match &field.desc {
+        FieldDesc::Size { field_id, width } => field_id == id,
+        _ => false,
+    })
+}
+
+fn has_count_field(decl: &Decl<analyzer::ast::Annotation>, id: &str) -> bool {
+    decl.fields().any(|field| match &field.desc {
+        FieldDesc::Count { field_id, width } => field_id == id,
+        _ => false,
+    })
 }
 
 /// Command line arguments for this tool.

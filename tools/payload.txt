@@ -52,10 +52,15 @@ I2019-01-01 00:00:00
 I2019-01-01 00:00:00
 00000000: 07 c0 40 80 c0
 
-# Type = Size_Brew, pot: 18, size: 2, additions = [Rum, Custom(24)]
+# Type = Size_Brew, pot: 0x12, size: 2, additions = [Rum, Custom(24)]
 # Warning: Extra unrecognized byte: 00
 I2019-01-01 00:00:00
 00000000: 08 12 02 0b 18 00
+
+# Type = Size_Brew, pot: 0x12, size: 3, additions = [Rum, Custom(24)]
+# Warning: Not enough bytes for size 3
+I2019-01-01 00:00:00
+00000000: 08 12 03 0b 18
 
 # Type = InheritanceWithoutConstraint, field = 0x88
 I2019-01-01 00:00:00
