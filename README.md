@@ -33,5 +33,11 @@ DissectorTable.get("tcp.port"):add_for_decode_as(TopLevel_protocol)
 This can be done by manually adding to the generated file, appending to the file using a bash
 script, or using lua's `require`.
 
+## Examples
+
+To see some examples of the generated lua files, see the `examples/` directory. You can also refer
+to `tests/integration_test.rs`, which runs the generated dissector and asserts it against the
+dissected output.
+
 ## TODO
 - [ ] Extract comments from the PDL file and put them in the ProtoField.descr field.
