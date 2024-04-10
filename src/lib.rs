@@ -10,7 +10,7 @@ use ::indent_write::io::IndentWriter;
 use codespan_reporting::diagnostic::Diagnostic;
 use diagnostics::Diagnostics;
 use indent_write::IoWriteExt;
-use indoc::{formatdoc, writedoc};
+use indoc::writedoc;
 use len_info::{FType, RuntimeLenInfo};
 use log::debug;
 use pdl_compiler::{
@@ -68,6 +68,28 @@ pub enum DeclDissectorInfo {
 }
 
 impl DeclDissectorInfo {
+    fn to_comments(&self) -> String {
+        if log::log_enabled!(log::Level::Debug) {
+            format!("{self:?}")
+        } else {
+            match self {
+                DeclDissectorInfo::Sequence {
+                    name,
+                    fields,
+                    children,
+                    constraints,
+                } => format!(
+                    "Sequence: {name} ({} fields, {} children, {} constraints)",
+                    fields.len(),
+                    children.len(),
+                    constraints.len()
+                ),
+                DeclDissectorInfo::Enum { .. } => format!("{self:?}"),
+                DeclDissectorInfo::Checksum { .. } => format!("{self:?}"),
+            }
+        }
+    }
+
     fn write_proto_fields(&self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
         match self {
             DeclDissectorInfo::Sequence {
@@ -194,11 +216,12 @@ impl DeclDissectorInfo {
                 writedoc!(
                     writer,
                     r#"
-                    -- {self:?}
+                    -- {comments}
                     function {name}_dissect(buffer, pinfo, tree, fields, path)
                         local i = 0
                         local field_values = {{}}
-                    "#
+                    "#,
+                    comments = self.to_comments(),
                 )?;
                 for field in fields {
                     field.write_dissect_fn(&mut writer.indent())?;
@@ -245,7 +268,6 @@ impl DeclDissectorInfo {
 
 impl DeclExt for Decl<analyzer::ast::Annotation> {
     fn to_dissector_info(&self, scope: &Scope) -> DeclDissectorInfo {
-        debug!("Write decl: {self:?}");
         match &self.desc {
             DeclDesc::Enum { id, tags, width } => DeclDissectorInfo::Enum {
                 name: id.clone(),
@@ -459,6 +481,35 @@ pub enum FieldDissectorInfo {
 }
 
 impl FieldDissectorInfo {
+    pub fn to_comments(&self) -> String {
+        if log::log_enabled!(log::Level::Debug) {
+            format!("{self:?}")
+        } else {
+            match self {
+                FieldDissectorInfo::Scalar {
+                    common: CommonFieldDissectorInfo { display_name, .. },
+                    ..
+                } => format!("Scalar: {display_name}"),
+                FieldDissectorInfo::Payload {
+                    common: CommonFieldDissectorInfo { display_name, .. },
+                    ..
+                } => format!("Payload: {display_name}"),
+                FieldDissectorInfo::Typedef {
+                    common: CommonFieldDissectorInfo { display_name, .. },
+                    ..
+                } => format!("Typedef: {display_name}"),
+                FieldDissectorInfo::TypedefArray {
+                    common: CommonFieldDissectorInfo { display_name, .. },
+                    ..
+                } => format!("TypedefArray: {display_name}"),
+                FieldDissectorInfo::ScalarArray {
+                    common: CommonFieldDissectorInfo { display_name, .. },
+                    ..
+                } => format!("ScalarArray: {display_name}"),
+            }
+        }
+    }
+
     pub fn is_unaligned(&self) -> bool {
         match self {
             FieldDissectorInfo::Scalar { common, ftype, .. }
@@ -645,10 +696,7 @@ impl FieldDissectorInfo {
                 }
             },
             FieldDissectorInfo::Payload {
-                common,
-                len,
-                children,
-                ..
+                common, children, ..
             } => {
                 self.write_scalar_dissect(writer, &common.abbr, children, None)?;
             }
@@ -704,10 +752,7 @@ impl FieldDissectorInfo {
                 }
             }
             FieldDissectorInfo::ScalarArray {
-                common,
-                item_len,
-                array_info,
-                ..
+                common, array_info, ..
             } => {
                 self.write_array_dissect(writer, common, array_info, |w| {
                     self.write_scalar_dissect(w, &common.abbr, &[], None)
@@ -728,9 +773,10 @@ impl FieldDissectorInfo {
         writedoc!(
             writer,
             r#"
-            -- {self:?}
+            -- {comments}
             local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
-            "#
+            "#,
+            comments = self.to_comments()
         )?;
         lua_if_then_else(
             &mut *writer,
@@ -788,13 +834,14 @@ impl FieldDissectorInfo {
                 writedoc!(
                     writer,
                     r#"
-                    -- {self:?}
+                    -- {comments}
                     local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
                     local subtree = tree:add(buffer(i, field_len), "{name}")
                     local dissected_len = {type_name}_dissect(buffer(i, field_len), pinfo, subtree, fields, path)
                     subtree:set_len(dissected_len)
                     i = i + dissected_len
                     "#,
+                    comments = self.to_comments(),
                 )?;
             }
             DeclDissectorInfo::Enum {
@@ -804,7 +851,7 @@ impl FieldDissectorInfo {
                 writedoc!(
                     writer,
                     r#"
-                    -- {self:?}
+                    -- {comments}
                     local field_len = enforce_len_limit(math.ceil({len_expr}), buffer(i):len(), tree)
                     subtree, field_values[path .. ".{name}"], bitlen = fields[path .. ".{abbr}"]:dissect(tree, buffer(i), field_len)
                     if {type_name}_enum.by_value[field_values[path .. ".{name}"]] == nil then
@@ -812,6 +859,7 @@ impl FieldDissectorInfo {
                     end
                     i = i + bitlen / 8
                     "#,
+                    comments = self.to_comments(),
                 )?;
             }
             DeclDissectorInfo::Checksum {
@@ -828,7 +876,7 @@ impl FieldDissectorInfo {
                 writedoc!(
                     writer,
                     r#"
-                    -- {self:?}
+                    -- {comments}
                     local field_len = enforce_len_limit({len_expr}, buffer(i):len(), tree)
                     field_values[path .. ".{name}"] = buffer(i, field_len):{buffer_value_function}
                     if field_len ~= 0 then
@@ -836,6 +884,7 @@ impl FieldDissectorInfo {
                         i = i + field_len
                     end
                     "#,
+                    comments = self.to_comments(),
                 )?;
             }
         }
@@ -878,9 +927,10 @@ impl FieldDissectorInfo {
         writedoc!(
             writer,
             r#"
-            -- {self:?}
+            -- {comments}
             local initial_i = i
             "#,
+            comments = self.to_comments(),
         )?;
         if array_info.has_count_field {
             writedoc!(
