@@ -66,8 +66,9 @@ function AlignedProtoField:new(o)
         valuestring = nil,
         base = nil,
         is_little_endian = nil,
+        description = nil, -- optional
     }
-    o.field = ProtoField.new(o.name, o.abbr, o.ftype, o.valuestring, o.base)
+    o.field = ProtoField.new(o.name, o.abbr, o.ftype, o.valuestring, o.base, nil, o.description)
     setmetatable(o, self)
     self.__index = self
     return o
@@ -91,9 +92,10 @@ function UnalignedProtoField:new(o)
         ftype = nil,
         bitoffset = nil,
         bitlen = nil, -- optional
-        valuestring = nil -- optional
+        valuestring = nil, -- optional
+        description = nil, -- optional
     }
-    o.field = ProtoField.new(o.name, o.abbr, ftypes.BYTES)
+    o.field = ProtoField.new(o.name, o.abbr, ftypes.BYTES, nil, nil, nil, o.description)
     setmetatable(o, self)
     self.__index = self
     return o

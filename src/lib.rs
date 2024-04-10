@@ -1,3 +1,4 @@
+mod comments;
 pub mod diagnostics;
 #[cfg(test)]
 mod fakes;
@@ -8,11 +9,12 @@ mod utils;
 
 use ::indent_write::io::IndentWriter;
 use codespan_reporting::diagnostic::Diagnostic;
+use comments::ToLuaExpr;
 use diagnostics::Diagnostics;
 use indent_write::IoWriteExt;
 use indoc::writedoc;
 use len_info::{FType, RuntimeLenInfo};
-use log::debug;
+use log::{debug, info};
 use pdl_compiler::{
     analyzer::{self, Scope},
     ast::{
@@ -23,7 +25,10 @@ use pdl_compiler::{
 use std::{collections::HashMap, io::Write, path::PathBuf};
 use utils::{buffer_value_lua_function, lua_if_then_else};
 
-use crate::len_info::BitLen;
+use crate::{
+    comments::{find_comments_on_same_line, unwrap_comment},
+    len_info::BitLen,
+};
 
 #[derive(Clone, Debug)]
 struct FieldContext<'a> {
@@ -428,6 +433,7 @@ pub struct CommonFieldDissectorInfo {
     abbr: String,
     bit_offset: BitLen,
     endian: EndiannessValue,
+    comments: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -536,6 +542,7 @@ impl FieldDissectorInfo {
                     abbr,
                     bit_offset,
                     endian,
+                    comments,
                 } = common;
                 let bitlen = ftype
                     .0
@@ -552,10 +559,12 @@ impl FieldDissectorInfo {
                             bitoffset = {bit_offset},
                             bitlen = {bitlen},
                             is_little_endian = {is_le},
+                            description = {description},
                         }})
                         "#,
                         ftype = ftype.to_lua_expr(),
                         is_le = *endian == EndiannessValue::LittleEndian,
+                        description = comments.as_deref().to_lua_expr(),
                     )?;
                 } else {
                     writedoc!(
@@ -567,10 +576,12 @@ impl FieldDissectorInfo {
                             ftype = {ftype},
                             bitlen = {bitlen},
                             is_little_endian = {is_le},
+                            description = {description},
                         }})
                         "#,
                         ftype = ftype.to_lua_expr(),
                         is_le = *endian == EndiannessValue::LittleEndian,
+                        description = comments.as_deref().to_lua_expr(),
                     )?;
                 }
             }
@@ -581,6 +592,7 @@ impl FieldDissectorInfo {
                     abbr,
                     bit_offset,
                     endian,
+                    comments,
                 } = common;
                 match decl.as_ref() {
                     DeclDissectorInfo::Sequence { fields, .. } => {
@@ -605,10 +617,12 @@ impl FieldDissectorInfo {
                                 valuestring = {type_name}_enum.matchers,
                                 base = base.RANGE_STRING,
                                 is_little_endian = {is_le},
+                                description = {description},
                             }})
                             "#,
                                 ftype = ftype.to_lua_expr(),
                                 is_le = *endian == EndiannessValue::LittleEndian,
+                                description = comments.as_deref().to_lua_expr(),
                             )?;
                         } else {
                             writedoc!(
@@ -1028,6 +1042,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         abbr: format!("{field_id}_size"),
                         bit_offset: *bit_offset,
                         endian: ctx.scope.file.endianness.value,
+                        comments: find_comments_on_same_line(ctx.scope.file, &self.loc)
+                            .map(|comment| unwrap_comment(&comment.text).to_string()),
                     },
                     ftype,
                     len: RuntimeLenInfo::fixed(BitLen(*width)),
@@ -1049,6 +1065,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         abbr: format!("{field_id}_count"),
                         bit_offset: *bit_offset,
                         endian: ctx.scope.file.endianness.value,
+                        comments: find_comments_on_same_line(ctx.scope.file, &self.loc)
+                            .map(|comment| unwrap_comment(&comment.text).to_string()),
                     },
                     ftype,
                     len: RuntimeLenInfo::fixed(BitLen(width * 8)),
@@ -1077,6 +1095,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         abbr: "_body_".into(),
                         bit_offset: *bit_offset,
                         endian: ctx.scope.file.endianness.value,
+                        comments: find_comments_on_same_line(ctx.scope.file, &self.loc)
+                            .map(|comment| unwrap_comment(&comment.text).to_string()),
                     },
                     ftype,
                     len: field_len,
@@ -1098,6 +1118,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         abbr: "_payload_".into(),
                         bit_offset: *bit_offset,
                         endian: ctx.scope.file.endianness.value,
+                        comments: find_comments_on_same_line(ctx.scope.file, &self.loc)
+                            .map(|comment| unwrap_comment(&comment.text).to_string()),
                     },
                     ftype: FType::from(self.annot.size),
                     len: field_len,
@@ -1112,6 +1134,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         abbr: format!("_fixed_{}", ctx.num_fixed - 1),
                         bit_offset: *bit_offset,
                         endian: ctx.scope.file.endianness.value,
+                        comments: find_comments_on_same_line(ctx.scope.file, &self.loc)
+                            .map(|comment| unwrap_comment(&comment.text).to_string()),
                     },
                     ftype: FType::from(self.annot.size),
                     len: RuntimeLenInfo::fixed(BitLen(*width)),
@@ -1129,6 +1153,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         abbr: format!("_fixed_{}", ctx.num_fixed - 1),
                         bit_offset: *bit_offset,
                         endian: ctx.scope.file.endianness.value,
+                        comments: find_comments_on_same_line(ctx.scope.file, &self.loc)
+                            .map(|comment| unwrap_comment(&comment.text).to_string()),
                     },
                     ftype,
                     len: referenced_enum.decl_len(),
@@ -1144,6 +1170,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         abbr: format!("_reserved_{}", ctx.num_reserved - 1),
                         bit_offset: *bit_offset,
                         endian: ctx.scope.file.endianness.value,
+                        comments: find_comments_on_same_line(ctx.scope.file, &self.loc)
+                            .map(|comment| unwrap_comment(&comment.text).to_string()),
                     },
                     ftype: FType(Some(BitLen(*width))),
                     len: RuntimeLenInfo::fixed(BitLen(*width)),
@@ -1164,6 +1192,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         abbr: id.clone(),
                         bit_offset: *bit_offset,
                         endian: ctx.scope.file.endianness.value,
+                        comments: find_comments_on_same_line(ctx.scope.file, &self.loc)
+                            .map(|comment| unwrap_comment(&comment.text).to_string()),
                     },
                     decl: Box::new(
                         ctx.scope
@@ -1187,6 +1217,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         abbr: id.clone(),
                         bit_offset: BitLen::default(),
                         endian: ctx.scope.file.endianness.value,
+                        comments: find_comments_on_same_line(ctx.scope.file, &self.loc)
+                            .map(|comment| unwrap_comment(&comment.text).to_string()),
                     },
                     array_info: ArrayFieldDissectorInfo {
                         count: *size,
@@ -1206,6 +1238,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                     abbr: id.into(),
                     bit_offset: *bit_offset,
                     endian: ctx.scope.file.endianness.value,
+                    comments: find_comments_on_same_line(ctx.scope.file, &self.loc)
+                        .map(|comment| unwrap_comment(&comment.text).to_string()),
                 },
                 ftype: FType(Some(BitLen(*width))),
                 len: RuntimeLenInfo::fixed(BitLen(*width)),
@@ -1225,6 +1259,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         abbr: id.into(),
                         bit_offset: *bit_offset,
                         endian: ctx.scope.file.endianness.value,
+                        comments: find_comments_on_same_line(ctx.scope.file, &self.loc)
+                            .map(|comment| unwrap_comment(&comment.text).to_string()),
                     },
                     ftype: FType::from(self.annot.size),
                     len: RuntimeLenInfo::fixed(BitLen(1)),
@@ -1246,6 +1282,8 @@ impl FieldExt for Field<analyzer::ast::Annotation> {
                         abbr: id.into(),
                         bit_offset: *bit_offset,
                         endian: ctx.scope.file.endianness.value,
+                        comments: find_comments_on_same_line(ctx.scope.file, &self.loc)
+                            .map(|comment| unwrap_comment(&comment.text).to_string()),
                     },
                     decl: Box::new(dissector_info),
                     optional_field: ctx.optional_decl.get(id).cloned(),

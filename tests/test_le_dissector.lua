@@ -66,8 +66,9 @@ function AlignedProtoField:new(o)
         valuestring = nil,
         base = nil,
         is_little_endian = nil,
+        description = nil, -- optional
     }
-    o.field = ProtoField.new(o.name, o.abbr, o.ftype, o.valuestring, o.base)
+    o.field = ProtoField.new(o.name, o.abbr, o.ftype, o.valuestring, o.base, nil, o.description)
     setmetatable(o, self)
     self.__index = self
     return o
@@ -91,9 +92,10 @@ function UnalignedProtoField:new(o)
         ftype = nil,
         bitoffset = nil,
         bitlen = nil, -- optional
-        valuestring = nil -- optional
+        valuestring = nil, -- optional
+        description = nil, -- optional
     }
-    o.field = ProtoField.new(o.name, o.abbr, ftypes.BYTES)
+    o.field = ProtoField.new(o.name, o.abbr, ftypes.BYTES, nil, nil, nil, o.description)
     setmetatable(o, self)
     self.__index = self
     return o
@@ -207,6 +209,7 @@ function TopLevel_protocol_fields(fields, path)
         valuestring = PacketType_enum.matchers,
         base = base.RANGE_STRING,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. "._body_"] = AlignedProtoField:new({
         name = "Body",
@@ -214,6 +217,7 @@ function TopLevel_protocol_fields(fields, path)
         ftype = ftypes.BYTES,
         bitlen = nil,
         is_little_endian = true,
+        description = nil,
     })
     SimplePacket_protocol_fields(fields, path .. ".SimplePacket")
     EnumPacket_protocol_fields(fields, path .. ".EnumPacket")
@@ -325,6 +329,7 @@ function SimplePacket_protocol_fields(fields, path)
         ftype = ftypes.UINT64,
         bitlen = 64,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: SimplePacket (1 fields, 0 children, 1 constraints)
@@ -361,6 +366,7 @@ function EnumPacket_protocol_fields(fields, path)
         valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: EnumPacket (1 fields, 0 children, 1 constraints)
@@ -386,6 +392,7 @@ function Group_AskBrewHistory_protocol_fields(fields, path)
         ftype = ftypes.UINT8,
         bitlen = 8,
         is_little_endian = true,
+        description = "Coffee Pot",
     })
     fields[path .. ".offset"] = AlignedProtoField:new({
         name = "offset",
@@ -393,6 +400,7 @@ function Group_AskBrewHistory_protocol_fields(fields, path)
         ftype = ftypes.UINT8,
         bitlen = 8,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".limit"] = AlignedProtoField:new({
         name = "limit",
@@ -400,6 +408,7 @@ function Group_AskBrewHistory_protocol_fields(fields, path)
         ftype = ftypes.UINT8,
         bitlen = 8,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: Group_AskBrewHistory (3 fields, 0 children, 1 constraints)
@@ -431,6 +440,7 @@ function UnalignedPacket_protocol_fields(fields, path)
         bitoffset = 0,
         bitlen = 3,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".b"] = UnalignedProtoField:new({
         name = "b",
@@ -439,6 +449,7 @@ function UnalignedPacket_protocol_fields(fields, path)
         bitoffset = 3,
         bitlen = 8,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".c"] = UnalignedProtoField:new({
         name = "c",
@@ -447,6 +458,7 @@ function UnalignedPacket_protocol_fields(fields, path)
         bitoffset = 3,
         bitlen = 3,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".d"] = UnalignedProtoField:new({
         name = "d",
@@ -455,6 +467,7 @@ function UnalignedPacket_protocol_fields(fields, path)
         bitoffset = 6,
         bitlen = 3,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".e"] = UnalignedProtoField:new({
         name = "e",
@@ -463,6 +476,7 @@ function UnalignedPacket_protocol_fields(fields, path)
         bitoffset = 1,
         bitlen = 3,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: UnalignedPacket (5 fields, 0 children, 1 constraints)
@@ -501,6 +515,7 @@ function ChecksumPacket_protocol_fields(fields, path)
         ftype = ftypes.UINT16,
         bitlen = 16,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".b"] = AlignedProtoField:new({
         name = "b",
@@ -508,6 +523,7 @@ function ChecksumPacket_protocol_fields(fields, path)
         ftype = ftypes.UINT16,
         bitlen = 16,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".crc"] = AlignedProtoField:new({
         name = "crc",
@@ -548,6 +564,7 @@ function Array_Brew_protocol_fields(fields, path)
         ftype = ftypes.UINT8,
         bitlen = 8,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".additions"] = AlignedProtoField:new({
         name = "additions",
@@ -556,6 +573,7 @@ function Array_Brew_protocol_fields(fields, path)
         valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".extra_additions"] = AlignedProtoField:new({
         name = "extra_additions",
@@ -564,6 +582,7 @@ function Array_Brew_protocol_fields(fields, path)
         valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: Array_Brew (3 fields, 0 children, 1 constraints)
@@ -621,6 +640,7 @@ function GroupConstraint_Struct_protocol_fields(fields, path)
         ftype = ftypes.UINT16,
         bitlen = 16,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: GroupConstraint_Struct (1 fields, 0 children, 0 constraints)
@@ -647,6 +667,7 @@ function GroupConstraint_Packet_protocol_fields(fields, path)
         ftype = ftypes.UINT16,
         bitlen = 16,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: GroupConstraint_Packet (1 fields, 0 children, 1 constraints)
@@ -672,6 +693,7 @@ function Size_Parent_protocol_fields(fields, path)
         bitoffset = 0,
         bitlen = 2,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. "._payload_"] = UnalignedProtoField:new({
         name = "Payload",
@@ -680,6 +702,7 @@ function Size_Parent_protocol_fields(fields, path)
         bitoffset = 2,
         bitlen = nil,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: Size_Parent (2 fields, 0 children, 1 constraints)
@@ -711,6 +734,7 @@ function Size_Brew_protocol_fields(fields, path)
         ftype = ftypes.UINT8,
         bitlen = 8,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".additions_size"] = AlignedProtoField:new({
         name = "Size(additions)",
@@ -718,6 +742,7 @@ function Size_Brew_protocol_fields(fields, path)
         ftype = ftypes.UINT8,
         bitlen = 8,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".additions"] = AlignedProtoField:new({
         name = "additions",
@@ -726,6 +751,7 @@ function Size_Brew_protocol_fields(fields, path)
         valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: Size_Brew (3 fields, 0 children, 1 constraints)
@@ -766,6 +792,7 @@ function AbstractParent_protocol_fields(fields, path)
         ftype = ftypes.BYTES,
         bitlen = nil,
         is_little_endian = true,
+        description = nil,
     })
     ChildWithoutConstraints_protocol_fields(fields, path .. ".ChildWithoutConstraints")
 end
@@ -795,6 +822,7 @@ function ChildWithoutConstraints_protocol_fields(fields, path)
         ftype = ftypes.UINT8,
         bitlen = 8,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: ChildWithoutConstraints (1 fields, 0 children, 0 constraints)
@@ -817,6 +845,7 @@ function PayloadWithSizeModifier_protocol_fields(fields, path)
         ftype = ftypes.UINT8,
         bitlen = 8,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".additions"] = AlignedProtoField:new({
         name = "additions",
@@ -825,6 +854,7 @@ function PayloadWithSizeModifier_protocol_fields(fields, path)
         valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: PayloadWithSizeModifier (2 fields, 0 children, 1 constraints)
@@ -861,6 +891,7 @@ function Fixed_Teapot_protocol_fields(fields, path)
         ftype = ftypes.UINT8,
         bitlen = 8,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. "._fixed_1"] = AlignedProtoField:new({
         name = "Fixed value: Empty",
@@ -868,6 +899,7 @@ function Fixed_Teapot_protocol_fields(fields, path)
         ftype = ftypes.UINT8,
         bitlen = 8,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: Fixed_Teapot (2 fields, 0 children, 1 constraints)
@@ -903,6 +935,7 @@ function Padding_PaddedCoffee_protocol_fields(fields, path)
         valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: Padding_PaddedCoffee (1 fields, 0 children, 1 constraints)
@@ -935,6 +968,7 @@ function Reserved_DeloreanCoffee_protocol_fields(fields, path)
         bitoffset = 0,
         bitlen = 20,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: Reserved_DeloreanCoffee (1 fields, 0 children, 1 constraints)
@@ -957,6 +991,7 @@ function Optional_Cream_protocol_fields(fields, path)
         ftype = ftypes.UINT8,
         bitlen = 8,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: Optional_Cream (1 fields, 0 children, 0 constraints)
@@ -983,6 +1018,7 @@ function Optional_CoffeeWithAdditions_protocol_fields(fields, path)
         bitoffset = 0,
         bitlen = 1,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".want_cream"] = UnalignedProtoField:new({
         name = "want_cream",
@@ -991,6 +1027,7 @@ function Optional_CoffeeWithAdditions_protocol_fields(fields, path)
         bitoffset = 1,
         bitlen = 1,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".want_alcohol"] = UnalignedProtoField:new({
         name = "want_alcohol",
@@ -999,6 +1036,7 @@ function Optional_CoffeeWithAdditions_protocol_fields(fields, path)
         bitoffset = 2,
         bitlen = 1,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. "._reserved_0"] = UnalignedProtoField:new({
         name = "Reserved",
@@ -1007,6 +1045,7 @@ function Optional_CoffeeWithAdditions_protocol_fields(fields, path)
         bitoffset = 3,
         bitlen = 5,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".sugar"] = AlignedProtoField:new({
         name = "sugar",
@@ -1014,6 +1053,7 @@ function Optional_CoffeeWithAdditions_protocol_fields(fields, path)
         ftype = ftypes.UINT16,
         bitlen = 16,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".fat_percentage"] = AlignedProtoField:new({
         name = "fat_percentage",
@@ -1021,6 +1061,7 @@ function Optional_CoffeeWithAdditions_protocol_fields(fields, path)
         ftype = ftypes.UINT8,
         bitlen = 8,
         is_little_endian = true,
+        description = nil,
     })
     fields[path .. ".alcohol"] = AlignedProtoField:new({
         name = "alcohol",
@@ -1029,6 +1070,7 @@ function Optional_CoffeeWithAdditions_protocol_fields(fields, path)
         valuestring = Optional_Alcohol_enum.matchers,
         base = base.RANGE_STRING,
         is_little_endian = true,
+        description = nil,
     })
 end
 -- Sequence: Optional_CoffeeWithAdditions (7 fields, 0 children, 1 constraints)
@@ -1162,3 +1204,4 @@ TopLevel_protocol_fields(TopLevel_protocol_fields_table, "TopLevel")
 for name,field in pairs(TopLevel_protocol_fields_table) do
     TopLevel_protocol.fields[name] = field.field
 end
+DissectorTable.get("tcp.port"):add(8000, TopLevel_protocol)
