@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::io::Write;
 
 use hex_literal::hex;
 use pdl_compiler::ast::SourceDatabase;
@@ -16,6 +17,7 @@ fn golden_test() -> anyhow::Result<()> {
     };
     let mut sources = SourceDatabase::new();
     pdl_dissector::run(args, &mut sources, &mut file)?;
+    writeln!(file, r#"DissectorTable.get("tcp.port"):add(8000, TopLevel_protocol)"#)?;
 
     let mut cmd = std::process::Command::new("tshark");
     cmd.args([

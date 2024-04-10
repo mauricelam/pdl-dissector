@@ -1162,4 +1162,3 @@ TopLevel_protocol_fields(TopLevel_protocol_fields_table, "TopLevel")
 for name,field in pairs(TopLevel_protocol_fields_table) do
     TopLevel_protocol.fields[name] = field.field
 end
-DissectorTable.get("tcp.port"):add(8000, TopLevel_protocol)

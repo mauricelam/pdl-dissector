@@ -1312,13 +1312,6 @@ fn generate_for_decl(
     )?;
 
     target_dissector_info.write_main_dissector(writer)?;
-
-    writedoc!(
-        writer,
-        r#"
-        DissectorTable.get("tcp.port"):add(8000, {decl_name}_protocol)
-        "#
-    )?;
     Ok(())
 }
 
