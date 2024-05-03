@@ -14,7 +14,7 @@ use diagnostics::Diagnostics;
 use indent_write::IoWriteExt;
 use indoc::writedoc;
 use len_info::{FType, RuntimeLenInfo};
-use log::{debug, info};
+use log::debug;
 use pdl_compiler::{
     analyzer::{self, Scope},
     ast::{
@@ -612,7 +612,7 @@ impl FieldDissectorInfo {
                                 r#"
                             fields[path .. ".{abbr}"] = AlignedProtoField:new({{
                                 name = "{display_name}",
-                                abbr = "{abbr}",
+                                abbr = path .. ".{abbr}",
                                 ftype = {ftype},
                                 valuestring = {type_name}_enum.matchers,
                                 base = base.RANGE_STRING,
@@ -630,7 +630,7 @@ impl FieldDissectorInfo {
                                 r#"
                                 fields[path .. ".{abbr}"] = UnalignedProtoField:new({{
                                     name = "{display_name}",
-                                    abbr = "{abbr}",
+                                    abbr = path .. ".{abbr}",
                                     ftype = {ftype},
                                     valuestring = {type_name}_enum.matchers,
                                     bitoffset = {bit_offset},
@@ -653,7 +653,7 @@ impl FieldDissectorInfo {
                             r#"
                             fields[path .. ".{abbr}"] = AlignedProtoField:new({{
                                 name = "{display_name}",
-                                abbr = "{abbr}",
+                                abbr = path .. ".{abbr}",
                                 ftype = {ftype},
                                 base = base.HEX,
                                 is_little_endian = {is_le},

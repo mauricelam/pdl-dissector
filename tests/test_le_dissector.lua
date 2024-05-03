@@ -204,7 +204,7 @@ PacketType_enum:define("UnalignedEnum", 15)
 function TopLevel_protocol_fields(fields, path)
     fields[path .. ".type"] = AlignedProtoField:new({
         name = "type",
-        abbr = "type",
+        abbr = path .. ".type",
         ftype = ftypes.UINT8,
         valuestring = PacketType_enum.matchers,
         base = base.RANGE_STRING,
@@ -361,7 +361,7 @@ Enum_CoffeeAddition_enum:define("Other", nil)
 function EnumPacket_protocol_fields(fields, path)
     fields[path .. ".addition"] = AlignedProtoField:new({
         name = "addition",
-        abbr = "addition",
+        abbr = path .. ".addition",
         ftype = ftypes.UINT8,
         valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING,
@@ -527,7 +527,7 @@ function ChecksumPacket_protocol_fields(fields, path)
     })
     fields[path .. ".crc"] = AlignedProtoField:new({
         name = "crc",
-        abbr = "crc",
+        abbr = path .. ".crc",
         ftype = ftypes.UINT16,
         base = base.HEX,
         is_little_endian = true,
@@ -568,7 +568,7 @@ function Array_Brew_protocol_fields(fields, path)
     })
     fields[path .. ".additions"] = AlignedProtoField:new({
         name = "additions",
-        abbr = "additions",
+        abbr = path .. ".additions",
         ftype = ftypes.UINT8,
         valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING,
@@ -577,7 +577,7 @@ function Array_Brew_protocol_fields(fields, path)
     })
     fields[path .. ".extra_additions"] = AlignedProtoField:new({
         name = "extra_additions",
-        abbr = "extra_additions",
+        abbr = path .. ".extra_additions",
         ftype = ftypes.UINT8,
         valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING,
@@ -746,7 +746,7 @@ function Size_Brew_protocol_fields(fields, path)
     })
     fields[path .. ".additions"] = AlignedProtoField:new({
         name = "additions",
-        abbr = "additions",
+        abbr = path .. ".additions",
         ftype = ftypes.UINT8,
         valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING,
@@ -849,7 +849,7 @@ function PayloadWithSizeModifier_protocol_fields(fields, path)
     })
     fields[path .. ".additions"] = AlignedProtoField:new({
         name = "additions",
-        abbr = "additions",
+        abbr = path .. ".additions",
         ftype = ftypes.UINT8,
         valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING,
@@ -930,7 +930,7 @@ end
 function Padding_PaddedCoffee_protocol_fields(fields, path)
     fields[path .. ".additions"] = AlignedProtoField:new({
         name = "additions (Padded)",
-        abbr = "additions",
+        abbr = path .. ".additions",
         ftype = ftypes.UINT8,
         valuestring = Enum_CoffeeAddition_enum.matchers,
         base = base.RANGE_STRING,
@@ -1065,7 +1065,7 @@ function Optional_CoffeeWithAdditions_protocol_fields(fields, path)
     })
     fields[path .. ".alcohol"] = AlignedProtoField:new({
         name = "alcohol",
-        abbr = "alcohol",
+        abbr = path .. ".alcohol",
         ftype = ftypes.UINT8,
         valuestring = Optional_Alcohol_enum.matchers,
         base = base.RANGE_STRING,
@@ -1128,7 +1128,7 @@ UnalignedEnum_enum:define("C", 3)
 function UnalignedEnum_packet_protocol_fields(fields, path)
     fields[path .. ".enum1"] = UnalignedProtoField:new({
         name = "enum1",
-        abbr = "enum1",
+        abbr = path .. ".enum1",
         ftype = ftypes.UINT8,
         valuestring = UnalignedEnum_enum.matchers,
         bitoffset = 0,
@@ -1137,7 +1137,7 @@ function UnalignedEnum_packet_protocol_fields(fields, path)
     })
     fields[path .. ".enum2"] = UnalignedProtoField:new({
         name = "enum2",
-        abbr = "enum2",
+        abbr = path .. ".enum2",
         ftype = ftypes.UINT8,
         valuestring = UnalignedEnum_enum.matchers,
         bitoffset = 3,
@@ -1146,7 +1146,7 @@ function UnalignedEnum_packet_protocol_fields(fields, path)
     })
     fields[path .. ".enum3"] = UnalignedProtoField:new({
         name = "enum3",
-        abbr = "enum3",
+        abbr = path .. ".enum3",
         ftype = ftypes.UINT8,
         valuestring = UnalignedEnum_enum.matchers,
         bitoffset = 6,
@@ -1185,12 +1185,12 @@ function UnalignedEnum_packet_match_constraints(field_values, path)
     return PacketType_enum:match("UnalignedEnum", field_values[path .. ".type"])
 end
 -- Protocol definition for "TopLevel"
-TopLevel_protocol = Proto("TopLevel",  "TopLevel")
+TopLevel_protocol = Proto("TopLevel",  "toplevel")
 TopLevel_protocol_fields_table = {}
 function TopLevel_protocol.dissector(buffer, pinfo, tree)
     pinfo.cols.protocol = "TopLevel"
     local subtree = tree:add(TopLevel_protocol, buffer(), "TopLevel")
-    local i = TopLevel_dissect(buffer, pinfo, subtree, TopLevel_protocol_fields_table, "TopLevel")
+    local i = TopLevel_dissect(buffer, pinfo, subtree, TopLevel_protocol_fields_table, "toplevel")
     if buffer(i):len() > 0 then
         local remaining_bytes = buffer:len() - i
         if math.floor(remaining_bytes) == remaining_bytes then
@@ -1200,7 +1200,7 @@ function TopLevel_protocol.dissector(buffer, pinfo, tree)
         end
     end
 end
-TopLevel_protocol_fields(TopLevel_protocol_fields_table, "TopLevel")
+TopLevel_protocol_fields(TopLevel_protocol_fields_table, "toplevel")
 for name,field in pairs(TopLevel_protocol_fields_table) do
     TopLevel_protocol.fields[name] = field.field
 end
