@@ -95,7 +95,7 @@ function UnalignedProtoField:new(o)
         valuestring = nil, -- optional
         description = nil, -- optional
     }
-    o.field = ProtoField.new(o.name, o.abbr, ftypes.BYTES, nil, nil, nil, o.description)
+    o.field = ProtoField.new(o.name, o.abbr, o.ftype, nil, nil, nil, o.description)
     setmetatable(o, self)
     self.__index = self
     return o
@@ -114,7 +114,7 @@ function UnalignedProtoField:dissect(tree, buffer, runtime_len)
     label = label .. string.rep(".", numbytes * 8 - bitlen - self.bitoffset)
     label = format_bitstring(label) .. " = " .. self.name
     label = label .. ": " .. self:get_value_display_string(value) -- Print out the string label
-    local subtree = tree:add(buf, self.field, value, label):set_text(label)
+    local subtree = tree:add(self.field, buf, value, label)
     return subtree, value, bitlen
 end
 

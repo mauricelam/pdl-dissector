@@ -47,4 +47,3 @@ to `tests/integration_test.rs`, which runs the generated dissector and asserts i
 dissected output.
 
 ## TODO
-- [ ] Maybe unaligned fields cannot be filtered?

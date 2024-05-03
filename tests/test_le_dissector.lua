@@ -95,7 +95,7 @@ function UnalignedProtoField:new(o)
         valuestring = nil, -- optional
         description = nil, -- optional
     }
-    o.field = ProtoField.new(o.name, o.abbr, ftypes.BYTES, nil, nil, nil, o.description)
+    o.field = ProtoField.new(o.name, o.abbr, o.ftype, nil, nil, nil, o.description)
     setmetatable(o, self)
     self.__index = self
     return o
@@ -114,7 +114,7 @@ function UnalignedProtoField:dissect(tree, buffer, runtime_len)
     label = label .. string.rep(".", numbytes * 8 - bitlen - self.bitoffset)
     label = format_bitstring(label) .. " = " .. self.name
     label = label .. ": " .. self:get_value_display_string(value) -- Print out the string label
-    local subtree = tree:add(buf, self.field, value, label):set_text(label)
+    local subtree = tree:add(self.field, buf, value, label)
     return subtree, value, bitlen
 end
 
@@ -1185,12 +1185,12 @@ function UnalignedEnum_packet_match_constraints(field_values, path)
     return PacketType_enum:match("UnalignedEnum", field_values[path .. ".type"])
 end
 -- Protocol definition for "TopLevel"
-TopLevel_protocol = Proto("TopLevel",  "toplevel")
+TopLevel_protocol = Proto("TopLevel",  "TopLevel")
 TopLevel_protocol_fields_table = {}
 function TopLevel_protocol.dissector(buffer, pinfo, tree)
     pinfo.cols.protocol = "TopLevel"
     local subtree = tree:add(TopLevel_protocol, buffer(), "TopLevel")
-    local i = TopLevel_dissect(buffer, pinfo, subtree, TopLevel_protocol_fields_table, "toplevel")
+    local i = TopLevel_dissect(buffer, pinfo, subtree, TopLevel_protocol_fields_table, "TopLevel")
     if buffer(i):len() > 0 then
         local remaining_bytes = buffer:len() - i
         if math.floor(remaining_bytes) == remaining_bytes then
@@ -1200,7 +1200,7 @@ function TopLevel_protocol.dissector(buffer, pinfo, tree)
         end
     end
 end
-TopLevel_protocol_fields(TopLevel_protocol_fields_table, "toplevel")
+TopLevel_protocol_fields(TopLevel_protocol_fields_table, "TopLevel")
 for name,field in pairs(TopLevel_protocol_fields_table) do
     TopLevel_protocol.fields[name] = field.field
 end
