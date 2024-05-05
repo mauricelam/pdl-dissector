@@ -1,0 +1,72 @@
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+name: Upload release artifacts
+
+jobs:
+  upload-release-artifacts-ubuntu:
+    name: Upload release artifacts (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - run: cargo build --release
+      - run: mkdir dist && mv "target/release/pdl-dissector" "dist/pdl-dissector-linux"
+      - name: Upload release artifact
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/pdl-dissector-linux
+
+  upload-release-artifacts-macos:
+    name: Upload release artifacts (macOS)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - run: cargo build --release
+      - run: mkdir dist && mv "target/release/pdl-dissector" "dist/pdl-dissector-macos"
+      - name: Upload release artifact
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/pdl-dissector-macos
+
+  upload-release-artifacts-windows:
+    name: Upload release artifacts (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - run: cargo build --release
+      - run: mkdir dist && mv "target/release/pdl-dissector.exe" "dist/pdl-dissector-windows.exe"
+      - name: Upload release artifact
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/pdl-dissector-windows.exe
