@@ -30,7 +30,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Install tshark
-      run: choco install wireshark
+      run: |
+        choco install wireshark
+        echo "C:\Program Files\Wireshark" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
     - name: Build
       run: cargo build --verbose
     - name: Run tests

@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
 use hex_literal::hex;
@@ -21,6 +21,14 @@ fn golden_test() -> anyhow::Result<()> {
         file,
         r#"DissectorTable.get("tcp.port"):add(8000, TopLevel_protocol)"#
     )?;
+
+    let tshark_version = std::process::Command::new("tshark")
+        .arg("--version")
+        .output()?
+        .stdout
+        .lines()
+        .next()
+        .unwrap()?;
 
     let mut cmd = std::process::Command::new("tshark");
     cmd.args([
@@ -83,11 +91,19 @@ fn golden_test() -> anyhow::Result<()> {
                 "[_ws.lua.text] EnumPacket",
                 "  [TopLevel.EnumPacket.addition] addition: Custom (22)",
             ],
-            vec![
-                "[TopLevel.type] type: Enum (1)",
-                "[_ws.lua.text] EnumPacket",
-                "  [TopLevel.EnumPacket.addition] addition: Other (68)",
-            ],
+            if tshark_version.contains("TShark (Wireshark) 4.") {
+                vec![
+                    "[TopLevel.type] type: Enum (1)",
+                    "[_ws.lua.text] EnumPacket",
+                    "  [TopLevel.EnumPacket.addition] addition: Other (68)",
+                ]
+            } else {
+                vec![
+                    "[TopLevel.type] type: Enum (1)",
+                    "[_ws.lua.text] EnumPacket",
+                    "  [TopLevel.EnumPacket.addition] addition: Unknown (68)",
+                ]
+            },
             vec![
                 "[TopLevel.type] type: Group (2)",
                 "[_ws.lua.text] Group_AskBrewHistory",
